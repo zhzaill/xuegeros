@@ -1,0 +1,11 @@
+# dsh-xuegeros bundle patch.
+#
+# Host half only. The client half is discovered by dsh.client from the
+# package manifest at Harness startup and injected into the browser bundle.
+- insert:
+    - id: xuegeros
+      name: dsh-xuegeros
+      config:
+        projectDir: D:\11\Projects\xuegeros
+        adapterUrl: http://127.0.0.1:18110
+        gatewayUrl: http://127.0.0.1:18111

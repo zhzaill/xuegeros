@@ -1,0 +1,6 @@
+config/xuegeros.env.ps1
+tmp/
+output/
+__pycache__/
+*.pyc
+.acl-recovery/
