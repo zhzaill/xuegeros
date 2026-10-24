@@ -459,6 +459,12 @@ $errors
 
 ## Known Limits
 
+- The body adapter (`tools/xuegeros_body_adapter.cmd`, :18110) is started by
+  hand and does NOT survive a DSH restart or a machine reboot — the cockpit
+  then shows "全离线/断流" until it is relaunched (2026-10-24 incident).
+  Pending: a logon scheduled task, same pattern as `XuegerosUdpProxy`.
+- The motion gateway likewise never auto-starts (by design, safety default);
+  the cockpit offers a "启动运动网关" button instead.
 - Guest NetworkManager remains broken until `libssh.so.4` is repaired.
 - Guest networking currently depends on manual DHCP for the active boot.
 - NAT forwarding targets the DHCP address `192.168.253.128`.
