@@ -864,3 +864,145 @@ the ComfyUI venv is used read-only and its site-packages were not modified
   found. The service runs random-init and flags `weights_loaded:false`
   in `/health` and every `/infer` response. Drop-in slot:
   `E:\vla\nomad\weights\nomad.pth`, then `vla-ctl.ps1 stop/start`.
+
+## 2026-10-24: VLA (NoMaD) Update Verified, and a Relay Reconnect Defect Fixed
+
+### VLA update accepted (v0.2.0 plugin + server-side NoMaD)
+
+Server service http://192.168.1.166:18300 is live: `device=cuda`, fp32,
+`nomad.pth` 76,473,631 B, sha256 `70f79b8...a333`, `missing_keys=0 /
+unexpected_keys=0`, `vram_mb=84.8`, EfficientNet-b0 encoder at 96x96 with a
+4-frame context. Measured latency 199-337 ms (about 3-5 Hz), a little above the
+plan's p50 of 164 ms. Proposals are clamped inside the service to
+`v=0.08 / |w|<=0.4`, confirmed on every sampled frame.
+
+P1 shadow chain verified end to end with `tools/vla_shadow_probe.py`, which
+pulls frames from the adapter loopback and never opens a second camera session.
+
+### The safety invariant holds in runtime, not just on paper
+
+Six consecutive VLA proposals were generated while `live_motion=true` AND
+`ai_motion=true` - i.e. physical mode, able to drive the motors. Result:
+
+- `/cmd_vel` exactly zero
+- `/motion/lease` empty (no lease ever issued)
+- odom `x=0.000022`, unchanged across the whole run
+
+Code audit agrees: only three model tools exist (`xuegeros_observe`,
+`xuegeros_drive`, `xuegeros_stop`) - there is no VLA tool at all - and
+`shadowProposal` flows only into `vlaSummary()` for display. There is no code
+path from a proposal into `drive()` or any gateway command.
+
+### v0.2.0 fixes the "screen froze" problem left open on 2026-10-23
+
+Last session established the backend was healthy and the fault was in the
+browser, but stopped there. Now fixed in two places:
+
+- `lib/client.js`: camera `<img>` freeze watchdog. An 8x8 canvas checksum runs
+  against the live element; 10 s without a change while the adapter still says
+  `streaming` triggers a cache-busted reconnect (8 s debounce). Tainted-canvas
+  and decode races are swallowed rather than reported as freezes.
+- `lib/index.js`: `proxyStream` idle guard. Every chunk re-arms a 20 s timer; a
+  stalled upstream is aborted so the client watchdog can recover instead of the
+  panel hanging forever. A healthy stream is untouched - measured 1,675,756 B
+  over 72 chunks in 4 s with `200 multipart/x-mixed-replace`.
+
+### Real defect found in my own previous relay fix (socket poisoning)
+
+During testing the robot's DDS endpoints vanished: `/scan` and `/odom` both
+reported **Publisher count: 0** and no `leap_low_driver` node, while the relay
+process was alive, UDP 8888 remained bound, and its counters were still
+climbing. The adapter kept reporting `micro_ros.session_observed=true`. A
+half-open link: counters advance, nothing reaches the guest.
+
+How it was narrowed down, layer by layer:
+
+1. Relay alive and it **survived four `ConnectionReset` events** - the
+   self-healing added on 2026-10-23 works; the old script would have died.
+2. `ping` to the ESP32 and to the guest: 0% loss, 1-4 ms / <1 ms. Not the
+   network.
+3. Guest agent: `ss -ulnp` shows `0.0.0.0:8888` bound (pid 795), unit active.
+4. Restarting the agent did not bring publishers back, so the fault had to be
+   the relay-to-guest session rather than a missing agent.
+
+Root cause: the previous version's socket-exception handler did
+`$clientEndpoint = $null; continue`, **reusing the same socket**. It logged
+"rebinding" while rebinding nothing. UDP failure is reported late: when a peer
+disappears the ICMP port-unreachable surfaces on a *later* `Receive()`, and the
+socket can stay poisoned - every later call fails immediately and nothing ever
+reaches the peer again. So once the guest agent restarted (recreating its UDP
+socket), the relay's upstream socket was poisoned and could never forward the
+ESP32's packets again.
+
+Fix: `break` on `SocketException` so the outer reconnect loop **recreates both
+sockets**, plus a 200 ms pause before rebinding (lets the OS release UDP 8888
+and keeps a flapping peer from turning reconnect into a hot loop). Log wording
+changed to `recreating both sockets` so it stops claiming something it does not
+do.
+
+Verification (deployed to the server, repo copy byte-identical, 7240 B):
+
+| | before | intermediate | after clean reset |
+| --- | --- | --- | --- |
+| `/scan` publishers | 0 | 2 | **1** |
+| `/odom` publishers | 0 | 1 | **1** |
+| `leap_low_driver` nodes | 0 | 2 | **1** |
+| odom x | 0.000022 | - | 0.000022 |
+
+The intermediate 2 is the same stale-session artifact documented on 2026-10-23
+(identical DDS GID client prefix); one more agent restart cleared it to 1.
+
+### Other acceptance results
+
+- `tools/selftest.mjs` rewritten: **14/14 green**, including two new VLA
+  assertions (state route carries health + shadow proposal; VLA disabled stays
+  offline with an explicit reason).
+- `node --check` passes for both `lib/index.js` and `lib/client.js`; the client
+  registers `sidebar.right.pane.tab` and renders the VLA card.
+- Gateway starts through the plugin route; the 403 stop-authorization fix from
+  2026-10-23 still holds (stop with `state.json`'s `operatorToken` returns
+  `ok:true`).
+- Zero-velocity pulse through the full chain: `published:true`,
+  `shadow_mode:false`; subsequent stop also `published:true`.
+
+### Outstanding after this session
+
+- The socket-recreate fix has **not** been tested across a real host reboot or a
+  real ESP32 power cycle.
+- ESP32 session stability is still not solved: both agent restarts in this
+  session produced duplicate DDS endpoints, so "restart agent -> stale session"
+  reproduces reliably and can only be cleared by restarting the agent again.
+  Worth making observable (run the agent with `-v6` and surface session logs via
+  the adapter) or detecting guest port recreation in the relay.
+- `/scan` has not returned to the documented 9.8 Hz; `ros2 topic hz` timed out
+  repeatedly this session while a python subscriber still received messages,
+  i.e. the rate is very low. The link between flapping and low rate is not
+  quantified yet.
+- adapter-side VLA is still unimplemented (`/v1/frames/latest.jpg` -> 404,
+  `/v1/world` has no `vla` section). This matches plan section 5 marking those
+  as pending, so it is **not** a regression; the plugin talks to the VLA service
+  directly.
+- `config/xuegeros.env.ps1` still lacks `XUEGEROS_VLA_URL` / `XUEGEROS_VLA_ENABLE`
+  (the hardcoded `DEFAULTS.vlaUrl` masks this).
+- Guest `libssh.so.4` still corrupt; use `python3 urllib`, not `curl`.
+- The guest appears to have rebooted twice today (14:10:58, 14:18:49); systemd
+  persistence evidently works under a real reboot but has no formal acceptance
+  record yet.
+
+### 收尾补充观察（15:58–16:00）：relay 已自愈，但链路仍在抖
+
+部署修复后整链路仍在抖动，`ConnectionReset` 约每 5 秒一次，但 relay 每次都能恢复：
+
+```text
+15:58:22  client selected: 192.168.1.106:8888
+15:58:27  socket error (ConnectionReset); recreating both sockets
+15:58:27  relay listening on 0.0.0.0:8888        <- 约 230 ms 后重回服务
+15:58:27  client selected: 192.168.1.106:8888    <- ESP32 立刻重新选中
+```
+
+对比老版本：同样的事件会让进程退出（10-23）或让 socket 永久毒化（本会话修复前）。
+**修复的价值是「不再死/不再哑」，不是「消除抖动」。**
+
+抖动本身仍在损害上层：收尾复查时 `/scan` publisher = 1 而 `/odom` publisher = 0，
+`leap_low_driver` 节点 = 1，`/cmd_vel` 为零（安全）。即 ESP32 侧会话在反复重建，
+DDS 端点随之闪断。这是**基础设施问题，需接触 ESP32 侧才能根治**，本机只能观测。

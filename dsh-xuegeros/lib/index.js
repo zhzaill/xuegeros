@@ -534,7 +534,7 @@ export function apply(ctx, entryConfig) {
     const text = worldBriefText(snapshot);
     await agent.inject({
       content: [{ type: 'text', text }],
-      source: { kind: 'plugin', plugin: 'dsh-xuegeros' },
+      source: { kind: 'runtime-context', form: 'snapshot', sections: [{ name: 'xuegeros-world', text }] },
     });
     return { ok: true, text };
   }
@@ -544,12 +544,16 @@ export function apply(ctx, entryConfig) {
     if (!agent || typeof agent.inject !== 'function') {
       return { ok: false, error: 'no_live_agent' };
     }
-    // Do NOT use agent.followup() here. On this DSH build (desktop 0.2.0-rc.2)
-    // followup appends a `user/message` event without `id`/`role`; the session
-    // loader then rejects the whole store on restart ("lacks an identified
-    // message") and the session disappears. Two sessions were lost this way on
-    // 2026-10-23. inject() produces a well-formed `agent/inbox/spliced` event
-    // and is the only summon mechanism verified not to corrupt the store.
+    // Two gateway API traps, both verified the hard way on this DSH build
+    // (desktop 0.2.0-rc.2):
+    // 1. agent.followup() appends a `user/message` event without `id`/`role`;
+    //    the session loader rejects the whole store on restart and the session
+    //    disappears. Banned since 2026-10-23 (two sessions lost).
+    // 2. agent.inject() validates `source.kind` against the producer-owned
+    //    enum; `kind:'plugin'` is NOT a member ("format v4 message requires a
+    //    producer-owned source kind", hit 2026-10-24). `runtime-context` with
+    //    the snapshot shape is the member plugins may carry; the enum was
+    //    derived empirically from every stored session.
     // Caveat: inject splices into the next turn; it does not wake an idle
     // agent - the operator must nudge the conversation once.
     const text = [
@@ -560,7 +564,7 @@ export function apply(ctx, entryConfig) {
     ].join('\n');
     await agent.inject({
       content: [{ type: 'text', text }],
-      source: { kind: 'plugin', plugin: 'dsh-xuegeros' },
+      source: { kind: 'runtime-context', form: 'snapshot', sections: [{ name: 'xuegeros-summon', text }] },
     });
     return { ok: true, session_id: agent.id, mechanism: 'inject', text };
   }
@@ -739,7 +743,11 @@ export function apply(ctx, entryConfig) {
 
   async function stop({ reason }) {
     const gw = await refreshGateway(true);
-    if (!gw) return { ok: false, error: 'gateway_offline' };
+    // Stopping is idempotent: with the gateway offline nothing can be under
+    // gateway control (the ROS-side watchdog holds zero velocity anyway), so
+    // report success instead of an error toast - e.g. when the operator
+    // toggles "allow AI motion" off right after a DSH restart.
+    if (!gw) return { ok: true, stopped: false, gateway: 'offline' };
     try {
       const result = await fetchJson(
         `${config.gatewayUrl.replace(/\/$/, '')}/v1/stop`,

@@ -332,7 +332,21 @@ async function run() {
     // The brief depends on the live adapter: healthy = 【XuegerOS 世界状态】…,
     // degraded = 【XuegerOS】车体世界不可用…. Accept both bracket prefixes.
     assert.match(recorded.injects[0][0].content[0].text, /【XuegerOS( 世界状态)?】/);
-    ok('summon: uses inject only (followup banned, session corruption prevented)');
+    // kind:'plugin' is rejected by the gateway ("producer-owned source kind");
+    // runtime-context/snapshot is the enum member we ship. Pin it so any
+    // future change is deliberate.
+    assert.equal(recorded.injects[0][0].source.kind, 'runtime-context');
+    assert.equal(recorded.injects[0][0].source.form, 'snapshot');
+    ok('summon: inject only, producer-owned source kind (runtime-context)');
+
+    // stop with the gateway offline is idempotent success, not an error
+    const stopRoute2 = harness2.routes.find((r) => r.path === '/sync/xuegeros/stop');
+    const resStop = mockRes();
+    await stopRoute2.handler(mockReq('POST', '{}'), resStop);
+    const stopBody = JSON.parse(resStop.body);
+    assert.equal(stopBody.ok, true, `stop should be idempotent when gateway offline: ${JSON.stringify(stopBody)}`);
+    assert.equal(stopBody.gateway, 'offline');
+    ok('stop: idempotent success when gateway offline');
 
     rmSync(home, { recursive: true, force: true });
   }
@@ -454,7 +468,7 @@ async function run() {
 
   clearTimeout(watchdog);
   // An early drain means some await never resolved; refuse to report success.
-  const REQUIRED = 14;
+  const REQUIRED = 15;
   assert.equal(PASS.length, REQUIRED, `only ${PASS.length}/${REQUIRED} checks ran`);
   console.log(`\n${PASS.length} checks passed`);
 }

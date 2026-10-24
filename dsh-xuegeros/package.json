@@ -1,6 +1,6 @@
 {
   "name": "dsh-xuegeros",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "XuegerOS cockpit for DeepSeek Harness: sidebar with live camera + YOLO + bounded jog + VLA (NoMaD) shadow-proposal panel; Cordis bridge with self-healing frame watchdog.",
   "type": "module",
   "main": "lib/index.js",

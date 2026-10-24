@@ -98,18 +98,29 @@ while ($true) {
                     }
                 }
             } catch [System.Net.Sockets.SocketException] {
-                # Transient by design: the peer went away. Rebind and continue,
-                # but do not spin - a fast failure loop would flood the log.
+                # A UDP socket learns its peer vanished only asynchronously: an
+                # ICMP port-unreachable is delivered to the *next* Receive() as
+                # ConnectionReset/ConnectionRefused. Once that happens the
+                # affected socket can stay poisoned - every later call fails
+                # immediately and nothing reaches the peer again. Observed
+                # 2026-10-24: after the guest micro-ROS agent restarted, the
+                # relay kept logging "rebinding" while actually reusing the
+                # broken upstream socket, so the robot never re-registered
+                # (/scan and /odom publishers stayed at 0) even though packets
+                # and counters looked alive.
+                #
+                # So a socket error must recreate BOTH sockets, not just forget
+                # the elected client. Break out to the reconnect loop, which
+                # disposes and rebinds. Log rate-limited so a flapping peer
+                # cannot flood the log.
                 $ex = $_.Exception
                 if ($ex.InnerException -is [System.Net.Sockets.SocketException]) { $ex = $ex.InnerException }
                 if (((Get-Date) - $lastErrorAt).TotalSeconds -ge 5) {
-                    Write-ProxyLog "socket error ($($ex.SocketErrorCode)); rebinding: $($ex.Message)"
+                    Write-ProxyLog "socket error ($($ex.SocketErrorCode)); recreating both sockets: $($ex.Message)"
                     $lastErrorAt = Get-Date
                 }
-                # Reset the peer so the next packet re-elects a client.
                 $clientEndpoint = $null
-                Start-Sleep -Milliseconds 200
-                continue
+                break
             }
 
             if (((Get-Date) - $lastStatsAt).TotalSeconds -ge 30) {
@@ -134,5 +145,8 @@ while ($true) {
         if ($upstream) {
             try { $upstream.Dispose() } catch { }
         }
+        # Give the OS a moment to release UDP 8888 before rebinding, and stop a
+        # persistently flapping peer from turning reconnect into a hot loop.
+        Start-Sleep -Milliseconds 200
     }
 }
