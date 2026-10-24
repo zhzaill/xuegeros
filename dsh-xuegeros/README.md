@@ -8,8 +8,8 @@ XuegerOS 小车在 DeepSeek Harness 里的驾驶舱：右侧栏一页 **小车**
 
 | 文件 | 角色 |
 |---|---|
-| `lib/index.js` | Host 半侧：轮询 `127.0.0.1:18110/v1/world`，注册模型工具，托管 `/sync/xuegeros/*` 路由，按需拉起运动网关与 SSH 隧道。 |
-| `lib/client.js` | Client 半侧：向 `sidebar.right.pane.tab` 注册 `xuegeros` 页，使用 DSH 主题 token，不碰宿主 DOM。 |
+| `lib/index.js` | Host 半侧：轮询 `127.0.0.1:18110/v1/world`，注册模型工具，托管 `/sync/xuegeros/*` 路由，按需拉起运动网关与 SSH 隧道；state 路由内嵌 **VLA 段**（NoMaD 服务健康 + 影子提案，读 `tmp/vla-shadow-log.jsonl` 尾部）；frame 代理带 **20s 空闲超时**（上游挂死不再冻结页面）。 |
+| `lib/client.js` | Client 半侧：向 `sidebar.right.pane.tab` 注册 `xuegeros` 页，使用 DSH 主题 token，不碰宿主 DOM；相机 `<img>` 带**冻结看门狗**（8×8 canvas 校验和，10s 无变化自动重连——修 2026-10-23「画面不动」）；新增 **VLA 导航卡片**（服务/权重/延迟/最近提案，影子提示）。 |
 | `cordis.patch.yml` | Bundle 补丁：把 `xuegeros` 行插进 Loader。 |
 
 ## 数据流

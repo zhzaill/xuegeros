@@ -171,7 +171,7 @@ async function run() {
     const home = mkdtempSync(join(tmpdir(), 'dsh-xuegeros-test-'));
     process.env.DSH_HOME = home;
     const harness = buildCtx();
-    apply(harness.ctx, {});
+    apply(harness.ctx, { vlaUrl: '' });
     await flush(8);
 
     assert.equal(harness.tools.length, 3, 'expected 3 model tools');
@@ -262,7 +262,7 @@ async function run() {
     const home = mkdtempSync(join(tmpdir(), 'dsh-xuegeros-test-'));
     process.env.DSH_HOME = home;
     const harness = buildCtx();
-    apply(harness.ctx, {});
+    apply(harness.ctx, { vlaUrl: '' });
     // Dispose immediately, before the async state load can finish.
     harness.disposeAll();
     const afterTeardown = harness.routes.length;
@@ -306,7 +306,7 @@ async function run() {
     // gatewayUrl is plugin config, not persisted state; point it at a closed
     // port so this asserts the fail-closed logic rather than whichever gateway
     // happens to be running on this machine.
-    apply(harness.ctx, { gatewayUrl: 'http://127.0.0.1:9' });
+    apply(harness.ctx, { gatewayUrl: 'http://127.0.0.1:9', vlaUrl: '' });
     await flush(8);
     const persisted = JSON.parse(readFileSync(join(dataDir, 'state.json'), 'utf8'));
     assert.equal(persisted.liveMotion, false, 'stale liveMotion survived restart');
@@ -329,9 +329,9 @@ async function run() {
     assert.equal(body2.mechanism, 'inject', 'summon must use inject, not followup');
     const recorded = harness2.wrappers[0];
     assert.equal(recorded.injects.length, 1, 'agent did not receive the summon inject');
-    // Adapter is down in this test, so the brief renders the degraded variant
-    // (【XuegerOS】车体世界不可用…) — both variants must carry the bracket prefix.
-    assert.match(recorded.injects[0][0].content[0].text, /【XuegerOS】/);
+    // The brief depends on the live adapter: healthy = 【XuegerOS 世界状态】…,
+    // degraded = 【XuegerOS】车体世界不可用…. Accept both bracket prefixes.
+    assert.match(recorded.injects[0][0].content[0].text, /【XuegerOS( 世界状态)?】/);
     ok('summon: uses inject only (followup banned, session corruption prevented)');
 
     rmSync(home, { recursive: true, force: true });
@@ -379,9 +379,82 @@ async function run() {
     rmSync(home, { recursive: true, force: true });
   }
 
+  // 7. VLA section in the state route: stubbed health + crafted shadow log.
+  {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-xuegeros-test-'));
+    process.env.DSH_HOME = home;
+    const projectDir = join(home, 'project');
+    const { mkdirSync, writeFileSync } = await import('node:fs');
+    mkdirSync(join(projectDir, 'tmp'), { recursive: true });
+    const proposal = {
+      t: Date.now() / 1000 - 3,
+      kind: 'infer',
+      weights_loaded: true,
+      velocity_proposal: { v: 0.08, w: -0.2137 },
+      dist_pred: 1.15,
+    };
+    writeFileSync(
+      join(projectDir, 'tmp', 'vla-shadow-log.jsonl'),
+      JSON.stringify({ t: 1, kind: 'goal' }) + '\n' + JSON.stringify(proposal) + '\n',
+    );
+
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      if (String(url).includes('18300')) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify({
+              ok: true,
+              device: 'cuda',
+              weights: { loaded: true },
+              last_latency_ms: 175,
+              limits: { max_v: 0.08, max_w: 0.4, rate: 5 },
+            }),
+        };
+      }
+      throw new Error('network disabled in hermetic test');
+    };
+
+    try {
+      const harness = buildCtx();
+      apply(harness.ctx, { projectDir, gatewayUrl: 'http://127.0.0.1:9', vlaUrl: 'http://vla.test:18300' });
+      await flush(6);
+      const stateRoute = harness.routes.find((r) => r.path === '/sync/xuegeros/state');
+      const res = mockRes();
+      await stateRoute.handler(mockReq('GET'), res);
+      const body = JSON.parse(res.body);
+      assert.equal(body.vla.online, true, 'vla.online should be true with stubbed health');
+      assert.equal(body.vla.weights_loaded, true);
+      assert.equal(body.vla.last_latency_ms, 175);
+      assert.ok(body.vla.proposal, 'shadow proposal missing');
+      assert.equal(body.vla.proposal.v, 0.08);
+      assert.equal(body.vla.proposal.w, -0.2137);
+      assert.ok(body.vla.proposal.age_ms >= 2000 && body.vla.proposal.age_ms < 60000, `proposal age bogus: ${body.vla.proposal.age_ms}`);
+      ok('state route: vla health + shadow proposal section');
+
+      // vlaUrl disabled -> offline with explicit reason, no throw
+      const harness2 = buildCtx();
+      apply(harness2.ctx, { projectDir, gatewayUrl: 'http://127.0.0.1:9', vlaUrl: '' });
+      await flush(6);
+      const stateRoute2 = harness2.routes.find((r) => r.path === '/sync/xuegeros/state');
+      const res2 = mockRes();
+      await stateRoute2.handler(mockReq('GET'), res2);
+      const body2 = JSON.parse(res2.body);
+      assert.equal(body2.vla.online, false);
+      assert.equal(body2.vla.error, 'vla_url_not_configured');
+      ok('state route: vla disabled stays offline with explicit reason');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+
+    rmSync(home, { recursive: true, force: true });
+  }
+
   clearTimeout(watchdog);
   // An early drain means some await never resolved; refuse to report success.
-  const REQUIRED = 12;
+  const REQUIRED = 14;
   assert.equal(PASS.length, REQUIRED, `only ${PASS.length}/${REQUIRED} checks ran`);
   console.log(`\n${PASS.length} checks passed`);
 }

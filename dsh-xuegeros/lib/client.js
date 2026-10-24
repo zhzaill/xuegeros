@@ -132,6 +132,7 @@ window.__ModuleLoader__.load({
     function DetectionLayer({ detections, offline }) {
       const canvasRef = React.useRef(null);
       const wrapRef = React.useRef(null);
+      const imgRef = React.useRef(null);
       const boxes = Array.isArray(detections) ? detections : [];
 
       const draw = React.useCallback(() => {
@@ -189,10 +190,61 @@ window.__ModuleLoader__.load({
         };
       }, [draw]);
 
+      // Freeze watchdog. An MJPEG <img> that loses its stream mid-way keeps
+      // showing the last frame forever - no error event, no retry (the
+      // 2026-10-23 "画面不动" symptom). Detect it by hashing the decoded frame
+      // on a tiny same-origin canvas; 10 s without change while the adapter
+      // says the camera is streaming forces a cache-busted reconnect.
+      React.useEffect(() => {
+        const img = imgRef.current;
+        if (!img || typeof document === 'undefined') return undefined;
+        const probe = document.createElement('canvas');
+        probe.width = 8;
+        probe.height = 8;
+        const g = probe.getContext('2d', { willReadFrequently: true });
+        if (!g) return undefined;
+        let lastHash = null;
+        let lastChange = Date.now();
+        let lastReload = 0;
+        const timer = setInterval(() => {
+          if (offline || document.hidden) return;
+          try {
+            if (!img.complete || !img.naturalWidth) return;
+            g.drawImage(img, 0, 0, 8, 8);
+            const data = g.getImageData(0, 0, 8, 8).data;
+            let hash = 0;
+            for (let i = 0; i < data.length; i += 4) {
+              hash = (hash * 31 + data[i] + data[i + 1] + data[i + 2]) | 0;
+            }
+            if (hash !== lastHash) {
+              lastHash = hash;
+              lastChange = Date.now();
+            } else if (Date.now() - lastChange > 10000 && Date.now() - lastReload > 8000) {
+              lastReload = Date.now();
+              lastChange = Date.now();
+              img.src = `${FRAME_URL}?r=${Date.now()}`;
+            }
+          } catch {
+            /* tainted canvas or decode race: watchdog stays silent */
+          }
+        }, 2000);
+        return () => clearInterval(timer);
+      }, [offline]);
+
       return React.createElement(
         'div',
         { className: 'xz-frame', ref: wrapRef },
-        React.createElement('img', { src: FRAME_URL, alt: 'XuegerOS camera', draggable: false }),
+        React.createElement('img', {
+          src: FRAME_URL,
+          alt: 'XuegerOS camera',
+          draggable: false,
+          ref: imgRef,
+          onError: () => {
+            setTimeout(() => {
+              if (imgRef.current) imgRef.current.src = `${FRAME_URL}?r=${Date.now()}`;
+            }, 3000);
+          },
+        }),
         React.createElement('canvas', { ref: canvasRef }),
         offline ? React.createElement('div', { className: 'xz-offline' }, '相机未连接 · 等待视频流') : null,
       );
@@ -258,6 +310,9 @@ window.__ModuleLoader__.load({
       const mapping = world.mapping || {};
       const micro = world.micro_ros || {};
       const gateway = (data && data.gateway) || {};
+      const vla = (data && data.vla) || {};
+      const vlaOnline = Boolean(vla.online);
+      const vlaProposal = vla.proposal || null;
       const online = Boolean(data && data.ok && !world.error);
       const gatewayOnline = Boolean(gateway && gateway.enabled === true);
       const shadow = control.shadow !== false;
@@ -467,6 +522,22 @@ window.__ModuleLoader__.load({
             world.battery
               ? React.createElement('div', { className: 'xz-kv' }, React.createElement('span', { className: 'xz-k' }, '电池'), React.createElement('span', { className: 'xz-v' }, JSON.stringify(world.battery)))
               : null,
+          ),
+          React.createElement(
+            'div',
+            { className: 'xz-card' },
+            React.createElement('div', { className: 'xz-cardhead' }, React.createElement('span', { className: 'xz-cardtitle' }, 'VLA 导航'), React.createElement('span', { className: 'xz-inline-status', 'data-bad': vlaOnline ? (vla.weights_loaded ? '0' : '1') : '1' }, vlaOnline ? (vla.weights_loaded ? '在线' : '随机权重') : '离线')),
+            React.createElement('div', { className: 'xz-grid' },
+              React.createElement('div', { className: 'xz-kv' }, React.createElement('span', { className: 'xz-k' }, 'NoMaD 服务'), React.createElement('span', { className: 'xz-v', 'data-bad': vlaOnline ? '0' : '1' }, vlaOnline ? '在线' : '离线')),
+              React.createElement('div', { className: 'xz-kv' }, React.createElement('span', { className: 'xz-k' }, '推理延迟'), React.createElement('span', { className: 'xz-v' }, vlaOnline ? `${fmt(vla.last_latency_ms)} ms` : '—')),
+              React.createElement('div', { className: 'xz-kv' }, React.createElement('span', { className: 'xz-k' }, '影子提案'), React.createElement('span', { className: 'xz-v', 'data-bad': vlaProposal ? '0' : '1' }, vlaProposal ? `v ${vlaProposal.v} · w ${vlaProposal.w}` : '无记录')),
+              React.createElement('div', { className: 'xz-kv' }, React.createElement('span', { className: 'xz-k' }, '提案龄'), React.createElement('span', { className: 'xz-v' }, vlaProposal ? `${fmt(Math.round(vlaProposal.age_ms / 1000))} s` : '—')),
+              React.createElement('div', { className: 'xz-kv' }, React.createElement('span', { className: 'xz-k' }, '目标距离'), React.createElement('span', { className: 'xz-v' }, vlaProposal ? fmt(vlaProposal.dist_pred) : '—')),
+            ),
+            React.createElement('div', { className: 'xz-note' },
+              vlaOnline
+                ? 'NoMaD 提案为影子记录（P1），不驱动车辆；提案来自 vla_shadow_probe 的采样日志。'
+                : `推理服务不可达${vla.error ? `：${vla.error}` : ''}；不影响驾驶舱其他功能。`),
           ),
           React.createElement(
             'div',

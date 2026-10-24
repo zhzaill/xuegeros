@@ -1,7 +1,7 @@
 {
   "name": "dsh-xuegeros",
-  "version": "0.1.0",
-  "description": "XuegerOS cockpit for DeepSeek Harness: a right-sidebar panel with the live car camera, YOLO detections, bounded motion control, and a Cordis bridge that lets the session's agent observe and drive the car.",
+  "version": "0.2.0",
+  "description": "XuegerOS cockpit for DeepSeek Harness: sidebar with live camera + YOLO + bounded jog + VLA (NoMaD) shadow-proposal panel; Cordis bridge with self-healing frame watchdog.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

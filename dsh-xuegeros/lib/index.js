@@ -30,6 +30,10 @@ const DEFAULTS = {
   projectDir: 'D:\\11\\Projects\\xuegeros',
   adapterUrl: 'http://127.0.0.1:18110',
   gatewayUrl: 'http://127.0.0.1:18111',
+  // NoMaD proposal service (deployed 2026-10-24 on DESKTOP-6PVSJFV).
+  // Empty string disables the VLA section; proposals are shadow-only (P1).
+  vlaUrl: 'http://192.168.1.166:18300',
+  vlaPollMs: 5000,
   pollMs: 2000,
   injectIntervalMs: 15000,
   maxLinear: 0.08,
@@ -304,6 +308,93 @@ export function apply(ctx, entryConfig) {
     }
     gatewayAt = now;
     return gateway;
+  }
+
+  // --- VLA (NoMaD) observation -------------------------------------------------
+  // Shadow-only by design (P1): the service proposes, never actuates. The
+  // cockpit renders service health plus the latest shadow proposal from
+  // tools/vla_shadow_probe.py's JSONL log.
+
+  let vlaHealth = null;
+  let vlaAt = 0;
+  let vlaError = null;
+
+  async function refreshVla(force = false) {
+    const now = Date.now();
+    if (!force && vlaHealth && now - vlaAt < config.vlaPollMs) return vlaHealth;
+    const base = (config.vlaUrl || process.env.XUEGEROS_VLA_URL || '').replace(/\/$/, '');
+    if (!base) {
+      vlaHealth = null;
+      vlaError = 'vla_url_not_configured';
+    } else {
+      try {
+        vlaHealth = await fetchJson(`${base}/health`, {}, 3000);
+        vlaError = null;
+      } catch (error) {
+        vlaHealth = null;
+        vlaError = shortError(error);
+      }
+    }
+    vlaAt = now;
+    return vlaHealth;
+  }
+
+  let shadowSize = -1;
+  let shadowProposal = null;
+
+  /** Tail the shadow JSONL for the latest `kind:"infer"` entry; re-read only on growth. */
+  async function refreshShadowProposal() {
+    const file = join(config.projectDir, 'tmp', 'vla-shadow-log.jsonl');
+    try {
+      const st = await fs.stat(file);
+      if (st.size === shadowSize || st.size === 0) return shadowProposal;
+      shadowSize = st.size;
+      const handle = await fs.open(file, 'r');
+      try {
+        const tail = Buffer.alloc(Math.min(8192, st.size));
+        await handle.read(tail, 0, tail.length, Math.max(0, st.size - tail.length));
+        const lines = tail.toString('utf8').split('\n').filter(Boolean);
+        for (let i = lines.length - 1; i >= 0; i -= 1) {
+          try {
+            const obj = JSON.parse(lines[i]);
+            if (obj && obj.kind === 'infer') {
+              shadowProposal = obj;
+              return obj;
+            }
+          } catch {
+            /* partial first line of the tail window: keep scanning */
+          }
+        }
+        shadowProposal = null;
+      } finally {
+        await handle.close();
+      }
+    } catch {
+      shadowProposal = null;
+      shadowSize = -1;
+    }
+    return shadowProposal;
+  }
+
+  function vlaSummary() {
+    const proposal = shadowProposal;
+    return {
+      online: Boolean(vlaHealth),
+      error: vlaError,
+      weights_loaded: Boolean(vlaHealth?.weights?.loaded),
+      device: vlaHealth?.device ?? null,
+      last_latency_ms: vlaHealth?.last_latency_ms ?? null,
+      limits: vlaHealth?.limits ?? null,
+      proposal: proposal
+        ? {
+            v: proposal.velocity_proposal?.v ?? null,
+            w: proposal.velocity_proposal?.w ?? null,
+            dist_pred: proposal.dist_pred ?? null,
+            weights_loaded: Boolean(proposal.weights_loaded),
+            age_ms: Math.max(0, Math.round((Date.now() / 1000 - proposal.t) * 1000)),
+          }
+        : null,
+    };
   }
 
   // Prove the listening gateway actually honours our operator token.
@@ -781,6 +872,16 @@ export function apply(ctx, entryConfig) {
     const proxyStream = async (req, res, url) => {
       const controller = new AbortController();
       req.on('close', () => controller.abort());
+      // Idle guard: an upstream that stalls with the socket open would park
+      // this proxy forever and freeze the cockpit <img> with no error event.
+      // 20 s without a chunk ends the response; the client watchdog reconnects.
+      let idleTimer;
+      const armIdle = () => {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => controller.abort(), 20000);
+        idleTimer.unref?.();
+      };
+      armIdle();
       try {
         const upstream = await fetch(url, { signal: controller.signal });
         if (!upstream.ok || !upstream.body) {
@@ -795,6 +896,7 @@ export function apply(ctx, entryConfig) {
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
+          armIdle();
           if (!res.write(Buffer.from(value))) {
             await new Promise((resolve) => res.once('drain', resolve));
           }
@@ -809,6 +911,8 @@ export function apply(ctx, entryConfig) {
           /* ignore */
         }
         return { ok: false, started: true, error: shortError(error) };
+      } finally {
+        clearTimeout(idleTimer);
       }
     };
 
@@ -819,11 +923,14 @@ export function apply(ctx, entryConfig) {
         if (req.method !== 'GET') return sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
         const snapshot = await refreshWorld();
         const gw = await refreshGateway();
+        await refreshVla();
+        await refreshShadowProposal();
         sendJson(res, 200, {
           ok: true,
           device_id: snapshot?.device_id ?? 'xuegeros-car-01',
           world: summarizeWorld(snapshot, true),
           gateway: gw ?? { online: false, error: gatewayError },
+          vla: vlaSummary(),
           control: {
             ai_motion: state.aiMotion,
             inject_world: state.injectWorld,
