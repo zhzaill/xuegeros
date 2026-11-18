@@ -54,7 +54,7 @@ function workspace() {
 
 function makeWorld(dir, client) {
   const world = new XuegerosWorld(
-    { robotdUrl: 'ws://test', eventLogPath: 'events.jsonl', maxReplay: 50, localConsoleUrl: 'http://127.0.0.1:18112' },
+    { deployment: 'physical', robotdUrl: 'ws://test', eventLogPath: 'events.jsonl', maxReplay: 50, localConsoleUrl: 'http://127.0.0.1:18112' },
     { dataDir: dir },
     { createClient: () => client },
   );

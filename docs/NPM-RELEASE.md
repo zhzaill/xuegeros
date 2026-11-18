@@ -1,19 +1,22 @@
 # Coo 插件与轻量仿真发布
 
-当前版本：**cortico-world-xuegeros 0.3.3**。Node.js 22+、Python 3.10+；不需要 ROS 或 Gazebo。
+当前版本：**cortico-world-xuegeros 0.3.5**。Node.js 22+、Python 3.10+；不需要 ROS 或 Gazebo。
 
 ## 安装和启动
 
 ```sh
-npm install -g cortico-world-xuegeros@0.3.3
+npm install -g cortico-world-xuegeros@0.3.5
 xuegeros doctor
 xuegeros sim
 ```
 
 打开 http://127.0.0.1:18142/ 。地图 PNG 另需 `python -m pip install Pillow`。
-Coo 扩展依赖中安装同名包，启用 xuegeros World，设 deployment=simulation。
+Coo 扩展依赖中安装同名包并启用 xuegeros World。新装默认选择仿真。
+在动作面板点「启动仿真工作台」，等待服务就绪后点「打开仿真工作台」。
+这一入口能启动随包安装的 Python 仿真，也能复用已启动的仿真。已配置真车的旧安装可在设置中切换到 simulation。
 默认 simulationHttpUrl=http://127.0.0.1:18142，simulationRobotdUrl=ws://127.0.0.1:18242/ws。
 Coo 面板提供动作、巡游、原始状态与 24 项参数；3D 工作台独立打开，不再自动刷截图。
+0.3.5 已移除 Coo 的旧「控制窗」「地图/雷达」「3D 模型」快捷入口。
 旧链接安装应先卸载，再从 npm 安装；重启 Core 后重新打开设置窗口，更新版本化产物清单。
 
 ## 局域网

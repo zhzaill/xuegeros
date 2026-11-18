@@ -4,9 +4,8 @@ export const LABEL = 'XuegerOS 小车';
 export const DEFAULTS = {
   // Disabled by default: the operator enables it in Coo.
   enabled: false,
-  // Physical is the deployed default. Set deployment=simulation before
-  // connecting this World to the local-only simulator.
-  deployment: 'physical',
+  // New installs open in simulation. Saved physical deployments are explicit.
+  deployment: 'simulation',
   // robotd's WebSocket, reached through ssh -L. No network port on the car.
   robotdUrl: 'ws://127.0.0.1:18202/ws',
   // Deliberately separate loopback port for the local simulator. Keeping this
@@ -16,7 +15,7 @@ export const DEFAULTS = {
   simulationHttpUrl: 'http://127.0.0.1:18142',
   // World-specific restricted token; robotd rejects a missing/wrong token.
   robotdToken: '',
-  // Optional: the three local windows, linked from the Coo panel.
+  // Optional legacy console URL for status consumers.
   localConsoleUrl: 'http://127.0.0.1:18112',
   // Read-only camera frame + VLM for xuegeros_look.
   frameUrl: 'http://127.0.0.1:18110/v1/frames/latest.jpg',
@@ -85,7 +84,7 @@ export const CONFIG_GROUP = {
       'worlds.xuegeros.localConsoleUrl': {
         type: 'string',
         title: '本地中控地址',
-        description: 'tools/robot_console.py 的地址，面板只放链接，不重画地图。',
+        description: '独立真车中控 tools/robot_console.py 的兼容地址。',
         'x-hot': true,
       },
       'worlds.xuegeros.frameUrl': {

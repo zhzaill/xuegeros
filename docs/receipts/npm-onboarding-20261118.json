@@ -1,0 +1,27 @@
+{
+  "registry": "0.3.4",
+  "cold_start_via_coo_panel": true,
+  "http_ok": true,
+  "physical": false,
+  "parameters": 24,
+  "traveled_m": 0.05074999999997089,
+  "stopped": true,
+  "isolated_process_removed": true,
+  "original_simulator_reused": true,
+  "sha256": "060863047d919102dcaf59669bdfb5eef3598bc8a1bcfe0284d7e82eb2614c61",
+  "bytes": 386212,
+  "tests_passed": 32,
+  "0.3.5": {
+    "fresh_tarball_install": true,
+    "launch_via_installed_world": true,
+    "physical": false,
+    "parameters": 24,
+    "traveled_m": 0.0508,
+    "stopped": true,
+    "world_shutdown_closed_simulator": true,
+    "legacy_links_in_physical_manifest": false,
+    "legacy_links_in_simulation_manifest": false,
+    "tests_passed": 33,
+    "sha256": "c6f9d836bcdd229ccb085432c428eedc515830e53a973f20a20ca7c78cc47bce"
+  }
+}

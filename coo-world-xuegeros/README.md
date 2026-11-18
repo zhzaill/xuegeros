@@ -42,8 +42,14 @@ xuegeros sim --mesh-dir /path/to/your/meshes --config /path/to/control.json
 ## Coo / Cortico
 
 将 `cortico-world-xuegeros` 安装到 Coo 的扩展依赖目录，重启并启用 World。
-选择 `deployment=simulation`，默认 robotd 地址 `ws://127.0.0.1:18242/ws`、
-`simulationHttpUrl=http://127.0.0.1:18142`；自定义端口时两处一并修改。
+新安装默认使用仿真。在「动作面板」点「启动仿真工作台」，等「打开仿真工作台」出现后
+在浏览器查看 3D 场景。请先安装 Python 3.10+。Coo 会复用已运行的仿真，
+或从随包运行时启动一个本机进程。关闭 World 会结束由它启动的进程。
+独立运行用 `xuegeros sim`。默认 robotd 地址 `ws://127.0.0.1:18242/ws`、
+`simulationHttpUrl=http://127.0.0.1:18142`。改端口时两处一并修改。
+局域网服务由仿真主机运行 `xuegeros sim --host 0.0.0.0` 启动。
+已有 World 保留保存过的运行目标，可在设置里改成 `simulation`。
+Coo 面板已移除旧的「控制窗」「地图/雷达」「3D 模型」快捷入口。
 Coo 面板提供动作、巡游、参数编辑及独立工作台入口，不自动刷图。
 所有现有连接地址、超时与事件参数都可在 World 设置中编辑。
 工具增加 `xuegeros_control` 与 `xuegeros_interfaces`，原有观察、动作、巡游、地图、
@@ -75,7 +81,7 @@ World 不拥有控制环，也不发速度；单步意图统一走 robotd 的 `g
 ```powershell
 # 1. 隧道（robotd 与模型/遥测）
 ssh -N -L 18202:/run/user/1000/xuegeros-robotd.sock -L 18201:127.0.0.1:18201 chuyun@<guest>
-# 2. 本地中控（面板里的三个链接）
+# 2. 可选的独立真车中控
 python tools\robot_console.py --port 18112 --token <robotd-token>
 # 3. Coo 扩展
 #    data/extensions/package.json 里加 "cortico-world-xuegeros": "link:<本目录>"

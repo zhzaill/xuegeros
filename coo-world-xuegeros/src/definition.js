@@ -7,7 +7,7 @@ export const XUEGEROS = {
   defaults: () => structuredClone(DEFAULTS),
   preflight: ({ cfg }) => {
     if (!cfg?.robotdUrl) throw new Error('XuegerOS robotdUrl 为空');
-    if (!['physical', 'simulation'].includes(cfg?.deployment ?? 'physical')) {
+    if (!['physical', 'simulation'].includes(cfg?.deployment ?? DEFAULTS.deployment)) {
       throw new Error('XuegerOS deployment 必须是 physical 或 simulation');
     }
     if (cfg?.deployment === 'simulation') {

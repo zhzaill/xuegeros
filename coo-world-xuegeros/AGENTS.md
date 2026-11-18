@@ -4,6 +4,13 @@
 `src/world.js`，协议在 `src/robotd_client.js`，事件持久化在 `src/events.js`。
 本说明也覆盖 `src/webui/client.js` / `style.css` 与 `dist/webui.js`。
 Also covers `bin/xuegeros.mjs` and `scripts/build-runtime.mjs`.
+Also covers `src/workbench.js`. The panel invokes `startWorkbench` only in
+simulation mode. It accepts the configured HTTP and WebSocket endpoints,
+reuses running simulators, and launches the bundled Python module for
+loopback endpoints through Python 3.10+. The created child belongs to the
+World. World shutdown leaves independent CLI services alone. Test with
+separate free ports and no simulator process, then assert HTTP and WS
+readiness, simulator motion and teardown. Start LAN services from the CLI.
 
 ## 不能改的四条
 

@@ -1,5 +1,6 @@
 /* Components use the host theme; numeric facts keep a monospace face. */
 .xuegeros-panel { min-width:0; max-width:100%; }
+.xuegeros-panel [hidden] { display:none !important; }
 .xuegeros-panel .xuegeros-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-start; min-width:0; }
 .xuegeros-panel .statgrid { grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); min-width:0; }
 .xuegeros-panel .stat .v { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }

@@ -12,6 +12,10 @@ const COPY = {
     tour: '房间巡游', start: '开始巡游', pause: '暂停', resume: '继续', cancel: '取消任务',
     phase: '任务', stage: '阶段', known: '已观测格', traveled: '任务里程', home: '距起点', elapsed: '用时',
     accepted: '验收通过', exhausted: '指标未达成', stopped: '已停车', desc: '巡游、返航与停车',
+    startWorkbench: '启动仿真工作台', openWorkbench: '打开仿真工作台', startingWorkbench: '正在启动仿真…',
+    pythonRequired: '请安装 Python 3.10 或更高版本，重启 Coo 后再试。',
+    remoteOffline: '请先在仿真主机运行 xuegeros sim，再试一次。',
+    workbenchFailed: '工作台未启动。请检查仿真端口是否被占用，然后重试。',
   },
   en: {
     title: 'XuegerOS motion panel', status: 'State', seq: 'seq', scan: 'Scan age',
@@ -22,6 +26,10 @@ const COPY = {
     tour: 'Room tour', start: 'Start tour', pause: 'Pause', resume: 'Resume', cancel: 'Cancel task',
     phase: 'Task', stage: 'Stage', known: 'Observed cells', traveled: 'Task distance', home: 'Distance home', elapsed: 'Elapsed',
     accepted: 'Acceptance passed', exhausted: 'Acceptance not met', stopped: 'Stopped', desc: 'Explore, return home and stop',
+    startWorkbench: 'Start simulation', openWorkbench: 'Open simulation workbench', startingWorkbench: 'Starting simulation…',
+    pythonRequired: 'Install Python 3.10 or newer, then restart Coo and try again.',
+    remoteOffline: 'Run xuegeros sim on the simulation host and try again.',
+    workbenchFailed: 'The workbench did not start. Check the simulation ports and try again.',
   },
 };
 
@@ -34,17 +42,40 @@ function mount(ctx) {
   ctx.root.appendChild(sheet.el);
   sheet.el.classList.add('xuegeros-panel');
   const body = sheet.body;
-  // Keep the scene inside Coo without an external-browser protocol handoff.
-  // Mount only after confirming this World targets local simulation.
   const preview = ctx.ui.h('div', 'xuegeros-preview');
   preview.hidden = true;
   const previewLinks = ctx.ui.h('div', 'xuegeros-view-links');
-  const workbenchLink = ctx.ui.h('a', 'btn sm', 'http://127.0.0.1:18142/');
-  workbenchLink.href = 'http://127.0.0.1:18142/';
+  const workbenchLink = ctx.ui.h('a', 'btn sm', t.openWorkbench);
   workbenchLink.target = '_blank';
   workbenchLink.rel = 'noopener noreferrer';
-  workbenchLink.title = '打开完整仿真工作台（端口 18142）';
-  previewLinks.append(workbenchLink);
+  workbenchLink.title = t.openWorkbench;
+  workbenchLink.hidden = true;
+  const launchWorkbench = ctx.ui.button(t.startWorkbench, {size:'sm', variant:'primary', onClick:async () => {
+    launchWorkbench.disabled = true;
+    workbenchStatus.textContent = t.startingWorkbench;
+    try {
+      const result = await ctx.invoke('startWorkbench', []);
+      if (!result?.ok) {
+        workbenchStatus.textContent = result?.error === 'python_required' ? t.pythonRequired
+          : result?.error === 'remote_workbench_offline' ? t.remoteOffline : t.workbenchFailed;
+        return;
+      }
+      workbenchLink.href = result.url;
+      workbenchLink.hidden = false;
+      launchWorkbench.hidden = true;
+      workbenchStatus.textContent = '';
+      await refresh();
+    } catch {
+      workbenchStatus.textContent = t.workbenchFailed;
+    } finally {
+      launchWorkbench.disabled = false;
+    }
+  }});
+  launchWorkbench.title = t.startWorkbench;
+  launchWorkbench.setAttribute('aria-label', t.startWorkbench);
+  const workbenchStatus = ctx.ui.msgline('');
+  workbenchStatus.setAttribute('role', 'status');
+  previewLinks.append(launchWorkbench, workbenchLink);
   const artifactLink = ctx.ui.h('a', 'btn sm', '');
   artifactLink.target = '_blank';
   artifactLink.rel = 'noopener noreferrer';
@@ -60,7 +91,7 @@ function mount(ctx) {
   }
   previewLinks.append(ctx.ui.button('工作台截图', {size:'sm', onClick:() => void artifact('screenshot').catch(e => { receipt.textContent = message(e); })}),
     ctx.ui.button('真值地图', {size:'sm', onClick:() => void artifact('map').catch(e => { receipt.textContent = message(e); })}), artifactLink);
-  preview.append(previewLinks);
+  preview.append(previewLinks, workbenchStatus);
   body.appendChild(preview);
   const stats = ctx.ui.statgrid();
   body.appendChild(stats);
@@ -128,8 +159,10 @@ function mount(ctx) {
     preview.hidden = !sim;
     latest = data;
     tuning.hidden = !sim;
-    const href = data.links?.control;
-    if (href) { workbenchLink.href = href; workbenchLink.textContent = '打开仿真工作台'; }
+    if (!data.online) {
+      launchWorkbench.hidden = false;
+      workbenchLink.hidden = true;
+    }
     const tour = data.tour || {};
     const pose = Array.isArray(data.pose) ? data.pose.map(n => Number(n).toFixed(3)).join(' / ') : '—';
     liveReadout.textContent = `实时 ${data.state || '—'} · x/y/yaw ${pose} · 单步 ${Number(data.traveled_m || 0).toFixed(3)} m · #${data.seq ?? '—'}`;

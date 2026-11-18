@@ -1,6 +1,6 @@
 {
   "name": "cortico-world-xuegeros",
-  "version": "0.3.3",
+  "version": "0.3.5",
   "description": "XuegerOS robot World for Coo/Cortico: negotiates bounded intents with the on-board robotd daemon over its 50 Hz WebSocket, persists motion events with cursor replay, and renders action options for the persona.",
   "license": "MIT",
   "type": "module",

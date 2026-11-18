@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { CONFIG_GROUP, DEFAULTS, ID, LABEL, WAKE_KINDS, WAKE_STATES } from './config.js';
 import { EventLog } from './events.js';
 import { RobotdClient } from './robotd_client.js';
+import { Workbench } from './workbench.js';
 
 const ENV_PROMPT_FILE = fileURLToPath(new URL('./ENV_PROMPT.md', import.meta.url));
 const BUNDLED_ROOT = fileURLToPath(new URL('../runtime', import.meta.url));
@@ -61,12 +62,14 @@ export class XuegerosWorld {
     this.stopping = false;
     this._wasStale = null;
     this._delivery = Promise.resolve();
+    this.workbench = new Workbench();
   }
 
   // --- lifecycle -----------------------------------------------------------
   async start(host) {
     this.host = host;
     this.stopping = false;
+    if (this.workbench.lifetime.signal.aborted) this.workbench = new Workbench();
     this.log = this.deps.createLog
       ? this.deps.createLog(this.logPath(), { maxReplay: this.cfg.maxReplay })
       : new EventLog(this.logPath(), { maxReplay: this.cfg.maxReplay });
@@ -108,6 +111,7 @@ export class XuegerosWorld {
 
   async stop() {
     this.stopping = true;
+    this.workbench.stop();
     this.client?.stop();
     await this._delivery;
     this.client = null;
@@ -668,6 +672,16 @@ export class XuegerosWorld {
     }
   }
 
+  startWorkbench() {
+    if (this.cfg.deployment !== 'simulation') return {ok: false, error: 'simulation_only'};
+    return this.workbench.start({
+      http: new URL(this.simHttpUrl()),
+      ws: new URL(this.robotdUrl()),
+      runtime: existsSync(BUNDLED_ROOT) ? BUNDLED_ROOT : CHECKOUT_ROOT,
+      connected: () => !this.stopping && this.online() && this.state?.physical === false,
+    });
+  }
+
   async screenshot(args = {}) {
     if (this.cfg.deployment === 'simulation') {
       if (args.kind === 'camera_front') return this.simUnavailable('camera_front');
@@ -817,22 +831,16 @@ export class XuegerosWorld {
         { label: isEn ? 'Events' : '事件', value: this.eventsSeen, tone: 'plain' },
         { label: isEn ? 'Scan' : '扫描龄', value: this.state?.scan?.age_s ?? '—', tone: 'plain' },
       ],
-      links: this.cfg.deployment === 'simulation' ? [
-        { label: isEn ? 'Simulation workbench :18142' : '仿真工作台 :18142', href: `${this.simHttpUrl()}/` },
-      ] : [
-        { label: isEn ? 'Control' : '控制窗', href: `${this.cfg.localConsoleUrl}/`, inheritTheme: true },
-        { label: isEn ? 'Map / lidar' : '地图/雷达', href: `${this.cfg.localConsoleUrl}/map`, inheritTheme: true },
-        { label: isEn ? '3D model' : '3D 模型', href: `${this.cfg.localConsoleUrl}/3d`, inheritTheme: true },
-      ],
+      links: [],
       panels: [
         {
           id: 'live',
           title: isEn ? 'Motion console' : '动作面板',
           description: isEn
-            ? 'Status, available sectors and the last command that did not dispatch. Buttons in the local window send the same goal directly.'
-            : '状态、可用扇区与最近一次未下发原因。本地控制窗的按钮走同一条 goal。',
+            ? 'Vehicle state and recent action results.'
+            : '车辆状态与最近的动作回执。',
           getMethods: ['state', 'screenshot', 'map', 'ros', 'control', 'interfaces'],
-          postMethods: this.cfg.deployment === 'simulation' ? ['goal', 'stop', 'tour', 'image', 'control'] : [],
+          postMethods: this.cfg.deployment === 'simulation' ? ['goal', 'stop', 'tour', 'image', 'control', 'startWorkbench'] : [],
         },
       ],
       invoke: async (panel, method, rawArgs) => {
@@ -845,6 +853,7 @@ export class XuegerosWorld {
         const args = Array.isArray(rawArgs) ? rawArgs[0] : rawArgs;
         if (method === 'control') return this.controlSettings(args ?? {});
         if (method === 'interfaces') return this.simRead('/api/interfaces');
+        if (method === 'startWorkbench') return this.startWorkbench();
         if (method === 'image') return this.simulationImage(args ?? {});
         if (method === 'goal' && this.cfg.deployment === 'simulation') return this.goal(args ?? {});
         if (method === 'tour' && this.cfg.deployment === 'simulation') return this.tour(args ?? {});
