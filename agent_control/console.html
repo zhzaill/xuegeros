@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XuegerOS · 控制</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --line: #30363d; --text: #e6edf3;
+    --dim: #8b949e; --accent: #58a6ff; --ok: #3fb950; --warn: #d29922; --bad: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 13px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+           padding: 9px 14px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 14px; margin: 0 6px 0 0; font-weight: 600; }
+  .pill { border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; color: var(--dim); }
+  .pill.ok { color: var(--ok); border-color: #238636; }
+  .pill.bad { color: var(--bad); border-color: #b62324; }
+  .pill.warn { color: var(--warn); border-color: #9e6a03; }
+  main { display: grid; grid-template-columns: 340px 1fr; gap: 12px; padding: 12px; align-items: start; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  section h2 { font-size: 12px; color: var(--dim); margin: 0 0 8px; font-weight: 600; letter-spacing: .04em; }
+  .kv { display: grid; grid-template-columns: 74px 1fr; gap: 3px 8px; margin-bottom: 8px; }
+  .kv span:nth-child(odd) { color: var(--dim); }
+  .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
+  button { background: #21262d; color: var(--text); border: 1px solid var(--line);
+           border-radius: 6px; padding: 7px 10px; font-size: 13px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { border-color: var(--accent); color: var(--accent); }
+  button.danger { border-color: var(--bad); color: #ffb3ae; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+  label { color: var(--dim); }
+  select, input[type=number] { background: #0d1117; color: var(--text); border: 1px solid var(--line);
+                              border-radius: 6px; padding: 5px 7px; font-size: 13px; }
+  #answer { min-height: 74px; border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px;
+            font-size: 12px; color: var(--dim); white-space: pre-wrap; word-break: break-word; }
+  #log { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow: auto; }
+  #log li { border-bottom: 1px solid #21262d; padding: 5px 0; font-size: 12px; }
+  #sectors { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  .sector { text-align: center; border: 1px solid var(--line); border-radius: 5px; padding: 3px 0; font-size: 11px; }
+  .sector.blocked { border-color: #b62324; color: #ffb3ae; }
+  .sector.tight { border-color: #9e6a03; color: #e3b341; }
+  .sector.clear { border-color: #238636; color: #7ee787; }
+  .sector.unknown { color: var(--dim); }
+  footer { color: var(--dim); padding: 0 14px 12px; font-size: 11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>控制</h1>
+  <span class="pill" id="state">—</span>
+  <span class="pill" id="mode">影子</span>
+  <span class="pill" id="link">未连接</span>
+  <span class="mono" id="heartbeat">—</span>
+</header>
+
+<main>
+  <section>
+    <h2>12 扇区</h2>
+    <div id="sectors"></div>
+    <div class="kv" style="margin-top:10px">
+      <span>扫描龄</span><span class="mono" id="scan-age">—</span>
+      <span>里程计龄</span><span class="mono" id="odom-age">—</span>
+      <span>正前</span><span class="mono" id="front">—</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>移动 · 直接下发</h2>
+    <div class="row">
+      <button id="skill-forward" class="primary">前进</button>
+      <button id="skill-back">后退</button>
+      <button id="skill-face">原地转向</button>
+      <button id="skill-stop" class="danger">立即停车</button>
+    </div>
+    <div class="row">
+      <label for="sector">扇区</label>
+      <select id="sector"></select>
+      <label for="distance">距离 m</label>
+      <input id="distance" type="number" min="0.02" max="0.15" step="0.01" value="0.12">
+    </div>
+    <div class="kv">
+      <span>已走</span><span class="mono" id="traveled">—</span>
+    </div>
+    <h2 style="margin-top:12px">心跳 / 传感器</h2>
+    <div class="kv">
+      <span>心跳</span><span class="mono" id="hb">—</span>
+      <span>扫描</span><span class="mono" id="hb-scan">—</span>
+      <span>里程计</span><span class="mono" id="hb-odom">—</span>
+      <span>上次未下发</span><span class="mono" id="hb-block">无</span>
+    </div>
+    <div id="answer">按钮直接下发；小脑按手里的扫描决定走多少米，不够就当场说明原因。</div>
+    <h2 style="margin-top:12px">事件</h2>
+    <ul id="log"></ul>
+  </section>
+</main>
+
+<footer>窗口分工：本页只做控制与回执；地图/雷达在 /map，3D 模型在 /3d。停止不受门禁限制。</footer>
+
+<script>
+const WS_URL = "__WS_URL__";
+const $ = (id) => document.getElementById(id);
+const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+let socket = null;
+let lastDomAt = 0;
+let lastSeq = 0;
+let lastStateAt = 0;
+let fpsWindow = [];
+let lastHeartbeat = null;
+let lastHeartbeatAt = 0;
+
+function log(line) {
+  const item = document.createElement("li");
+  item.innerHTML = `<span class="mono">${new Date().toLocaleTimeString()}</span> ${line}`;
+  $("log").prepend(item);
+  while ($("log").children.length > 80) $("log").lastChild.remove();
+}
+
+function setLink(text, cls) {
+  $("link").textContent = text;
+  $("link").className = `pill ${cls || ""}`;
+}
+
+function connect() {
+  socket = new WebSocket(WS_URL);
+  socket.onopen = () => setLink("已连接", "ok");
+  socket.onclose = () => {
+    setLink("已断开", "bad");
+    setTimeout(connect, 1000);
+  };
+  socket.onerror = () => setLink("连接错误", "bad");
+  socket.onmessage = (event) => {
+    let message;
+    try { message = JSON.parse(event.data); } catch (error) { return; }
+    if (message.t === "state") renderState(message);
+    else if (message.t === "heartbeat") renderHeartbeat(message);
+    else if (message.t === "answer") renderAnswer(message);
+    else if (message.t === "events") (message.items || []).forEach(renderEvent);
+    else if (message.t === "hello") setLink("robotd 在线", "ok");
+    else if (message.t === "error") log(`<span class="bad">命令错误</span> ${esc(message.error)}`);
+  };
+}
+
+function send(value) {
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    $("answer").textContent = "还没连上 robotd；先确认 ssh -L 已建立。";
+    return false;
+  }
+  socket.send(JSON.stringify(value));
+  return true;
+}
+
+function sectorOptions() {
+  const select = $("sector");
+  if (select.options.length) return;
+  for (let i = 0; i < 12; i += 1) {
+    const deg = -165 + i * 30;
+    const option = document.createElement("option");
+    option.value = String(i);
+    option.textContent = `${i} · ${deg > 0 ? "+" : ""}${deg}°`;
+    select.appendChild(option);
+  }
+  select.value = "6";
+}
+
+function renderState(state) {
+  const now = performance.now();
+  if (state.seq && state.seq <= lastSeq) return;
+  const age = lastStateAt ? Math.round(now - lastStateAt) : 0;
+  lastSeq = state.seq || lastSeq;
+  lastStateAt = now;
+  fpsWindow.push(now);
+  while (fpsWindow.length > 1 && fpsWindow[0] < now - 1000) fpsWindow.shift();
+  $("heartbeat").textContent = `seq ${lastSeq} · ${fpsWindow.length} Hz · ${age} ms`;
+  $("link").className = "pill " + (age < 500 ? "ok" : age < 2000 ? "warn" : "bad");
+
+  if (now - lastDomAt < 120) return;
+  lastDomAt = now;
+
+  const pill = $("state");
+  pill.textContent = state.state || "—";
+  pill.className = "pill " + (state.state === "ACTIVE" ? "ok" : state.state === "VETO" || state.state === "BLOCKED" ? "bad" : "warn");
+  $("mode").textContent = state.physical ? "物理" : "影子";
+  $("mode").className = "pill " + (state.physical ? "bad" : "ok");
+  const scan = state.scan || {};
+  $("scan-age").textContent = scan.age_s == null ? "未知" : `${Number(scan.age_s).toFixed(2)} s · ${scan.valid ?? "?"} 点`;
+  $("odom-age").textContent = state.odom_age_s == null ? "未知" : `${Number(state.odom_age_s).toFixed(2)} s`;
+  $("front").textContent = scan.front_m == null ? "未知" : `${Number(scan.front_m).toFixed(2)} m`;
+  $("traveled").textContent = state.traveled_m == null ? "—" : `${Number(state.traveled_m).toFixed(3)} m`;
+
+  const box = $("sectors");
+  box.innerHTML = "";
+  (state.sectors || []).forEach((row) => {
+    const distance = row.min_m;
+    let cls = "unknown";
+    let text = "未知";
+    if (typeof distance === "number") {
+      text = distance.toFixed(2) + " m";
+      cls = distance <= 0.35 ? "blocked" : distance <= 0.75 ? "tight" : "clear";
+    }
+    const cell = document.createElement("div");
+    cell.className = `sector ${cls}`;
+    cell.innerHTML = `<div>${row.sector} · ${row.deg}°</div><div class="mono">${text}</div>`;
+    box.appendChild(cell);
+  });
+}
+
+function reasonText(item) {
+  const reason = String(item.reason || item.error || "");
+  const base = reason.split(":")[0];
+  const measured = reason.split(":")[1];
+  if (base === "obstacle") {
+    return `净空 ${item.clearance_m ?? measured ?? "?"} m < 阈值 ${item.threshold_m ?? "?"} m` +
+      (item.sector != null ? `（扇区 ${item.sector}）` : "");
+  }
+  if (base === "no_headroom") return `净空 ${item.clearance_m ?? "?"} m 扣掉停车余量后不够一步`;
+  if (base === "scan_stale") return `雷达陈旧 ${item.scan_age_s ?? "?"} s > 阈值 ${item.scan_limit_s ?? "?"} s`;
+  if (base === "odom_stale") return `里程计陈旧 ${item.odom_age_s ?? "?"} s > 阈值 ${item.odom_limit_s ?? "?"} s`;
+  if (base === "scan_missing") return "还没收到 /scan";
+  if (base === "scan_age_unknown") return "扫描帧没有时间戳";
+  if (base === "odom_missing") return "还没收到 /odom";
+  if (base === "odom_age_unknown") return "里程计没有时间戳";
+  if (base === "scan_insufficient") return `有效距离点太少（${item.valid_samples ?? "?"}）`;
+  if (base === "clearance_unknown") return "该方向没有有效测量";
+  if (base === "sector_out_of_range") return "扇区超出 0–11";
+  if (base === "invalid_sector") return "扇区无效";
+  return reason || "未知";
+}
+
+function describe(item) {
+  const bits = [];
+  const what = item.skill || item.goal;
+  if (what) bits.push(what);
+  if (item.sector != null) bits.push(`扇区 ${item.sector}`);
+  if (item.distance_m != null) bits.push(`${item.distance_m} m`);
+  if (item.traveled_m != null) bits.push(`已走 ${item.traveled_m} m`);
+  if (item.reason || item.error) bits.push(reasonText(item));
+  return bits.join(" · ");
+}
+
+function renderEvent(event) {
+  const cls = ["motion_vetoed", "motion_blocked", "command_failed", "command_error"].includes(event.kind)
+    ? "blocked" : ["motion_done", "stop"].includes(event.kind) ? "warn" : "ok";
+  const text = event.kind === "motion_done" && event.reason
+    ? `${describe(event)} · ${event.reason}`
+    : describe(event);
+  const count = Number(event.count || 1);
+  const li = document.createElement("li");
+  li.innerHTML = `<span class="mono">${new Date().toLocaleTimeString()}</span> ` +
+    `<span class="${cls}">${esc(event.kind)}</span> ${esc(text)}` +
+    (count > 1 ? ` <span class="count">×${count}</span>` : "");
+  $("log").prepend(li);
+  while ($("log").children.length > 80) $("log").lastChild.remove();
+}
+
+function renderHeartbeat(hb) {
+  lastHeartbeat = hb;
+  lastHeartbeatAt = performance.now();
+  paintHealth();
+}
+
+function paintHealth() {
+  if (!lastHeartbeat) return;
+  const age = Math.round(performance.now() - lastHeartbeatAt);
+  const hb = lastHeartbeat;
+  $("hb").textContent = `${age} ms 前 · ${hb.stale ? "降级" : "正常"}`;
+  $("hb").className = "mono " + (hb.stale || age > 2500 ? "blocked" : "ok");
+  $("hb-scan").textContent = `${hb.scan_age_s ?? "?"} / ${hb.scan_limit_s ?? "?"} s${hb.scan_ok ? "" : " · 陈旧"}`;
+  $("hb-scan").className = "mono " + (hb.scan_ok ? "ok" : "blocked");
+  $("hb-odom").textContent = `${hb.odom_age_s ?? "?"} / ${hb.odom_limit_s ?? "?"} s${hb.odom_ok ? "" : " · 陈旧"}`;
+  $("hb-odom").className = "mono " + (hb.odom_ok ? "ok" : "blocked");
+  const block = hb.last_block;
+  $("hb-block").textContent = block ? reasonText(block) : "无";
+  $("hb-block").className = "mono " + (block ? "blocked" : "ok");
+}
+
+function renderAnswer(answer) {
+  if (answer.request === "goal") {
+    if (answer.dispatched) {
+      const where = [answer.skill, answer.sector != null ? `扇区 ${answer.sector}` : "", answer.distance_m != null ? `${answer.distance_m} m` : ""]
+        .filter(Boolean).join(" ");
+      $("answer").textContent = `已下发 ${where}` +
+        (answer.clearance_m != null ? ` · 净空 ${answer.clearance_m} m` : "");
+    } else {
+      $("answer").textContent = `未下发：${reasonText(answer)}`;
+    }
+  } else if (answer.request === "stop") {
+    $("answer").textContent = `停车：${answer.reason || "已发送"}`;
+  }
+}
+
+function dispatch(skill) {
+  const sector = Number($("sector").value);
+  const distance = Number($("distance").value);
+  const body = { t: "goal", goal: skill, source: "console" };
+  if (skill === "forward" || skill === "back" || skill === "face") body.sector = sector;
+  if (skill !== "face") body.distance_m = distance;
+  if (send(body)) $("answer").textContent = `下发 ${skill}…`;
+}
+
+setInterval(() => {
+  paintHealth();
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  if (lastStateAt && performance.now() - lastStateAt > 1500) {
+    $("heartbeat").textContent = `seq ${lastSeq} · 心跳中断 ${Math.round(performance.now() - lastStateAt)} ms`;
+  }
+}, 500);
+
+$("skill-forward").onclick = () => dispatch("forward");
+$("skill-back").onclick = () => dispatch("back");
+$("skill-face").onclick = () => dispatch("face");
+$("skill-stop").onclick = () => send({ t: "stop", reason: "console_stop" });
+
+sectorOptions();
+connect();
+</script>
+</body>
+</html>

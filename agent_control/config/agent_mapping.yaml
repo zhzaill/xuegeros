@@ -1,0 +1,28 @@
+/**:
+  ros__parameters:
+    physical_enable: false
+    confirm_physical: false
+    control_hz: 10.0
+    map_frame: map
+    base_frame: base_link
+    scan_timeout_s: 2.5
+    odom_timeout_s: 1.0
+    tf_timeout_s: 1.0
+    map_timeout_s: 2.0
+    min_battery_voltage: 7.0
+    max_linear_mps: 0.04
+    max_angular_rps: 0.30
+    max_runtime_s: 300.0
+    max_travel_m: 8.0
+    saturation_window_s: 20.0
+    growth_eps_cells: 10
+    no_frontier_samples: 3
+    return_timeout_s: 90.0
+    target_reached_m: 0.22
+    no_progress_timeout_s: 30.0
+    obstacle_stop_m: 0.32
+    replan_period_s: 3.0
+    strategy: tour
+    lane_length_m: 1.0
+    lane_width_m: 0.60
+    max_lanes: 4

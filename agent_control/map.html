@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XuegerOS · 地图 / 雷达</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --line:#30363d; --text:#e6edf3; --dim:#8b949e;
+          --accent:#58a6ff; --ok:#3fb950; --warn:#d29922; --bad:#f85149; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:13px/1.5 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif; }
+  header { display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+           padding:9px 14px; border-bottom:1px solid var(--line); }
+  h1 { font-size:14px; margin:0 6px 0 0; font-weight:600; }
+  .pill { border:1px solid var(--line); border-radius:999px; padding:2px 9px; color:var(--dim); }
+  .pill.ok { color:var(--ok); border-color:#238636; }
+  .pill.warn { color:var(--warn); border-color:#9e6a03; }
+  .pill.bad { color:var(--bad); border-color:#b62324; }
+  main { display:grid; grid-template-columns: minmax(380px,1.3fr) minmax(320px,1fr);
+         gap:12px; padding:12px; align-items:start; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; }
+  section h2 { font-size:12px; color:var(--dim); margin:0 0 8px; font-weight:600; letter-spacing:.04em; }
+  canvas { width:100%; display:block; background:#0a0d12; border-radius:6px; }
+  #map { height:520px; }
+  #lidar { height:360px; }
+  .kv { display:grid; grid-template-columns:74px 1fr; gap:3px 8px; }
+  .kv span:nth-child(odd) { color:var(--dim); }
+  .mono { font-family:ui-monospace,"Cascadia Mono",Consolas,monospace; }
+  #sectors { display:grid; grid-template-columns:repeat(6,1fr); gap:4px; margin-top:10px; }
+  .sector { text-align:center; border:1px solid var(--line); border-radius:5px; padding:3px 0; font-size:11px; }
+  .sector.blocked { border-color:#b62324; color:#ffb3ae; }
+  .sector.tight { border-color:#9e6a03; color:#e3b341; }
+  .sector.clear { border-color:#238636; color:#7ee787; }
+  .sector.unknown { color:var(--dim); }
+  footer { color:var(--dim); padding:0 14px 12px; font-size:11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>地图 / 雷达</h1>
+  <span class="pill" id="link">未连接</span>
+  <span class="mono" id="heartbeat">—</span>
+  <span class="mono" id="scan-age">—</span>
+</header>
+
+<main>
+  <section>
+    <h2>ROS 建图 · 位姿</h2>
+    <canvas id="map" width="760" height="520"></canvas>
+    <div class="kv" style="margin-top:8px">
+      <span>地图</span><span class="mono" id="map-meta">—</span>
+      <span>位姿</span><span class="mono" id="pose-meta">—</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>激光雷达</h2>
+    <canvas id="lidar" width="620" height="360"></canvas>
+    <div class="kv" style="margin-top:8px">
+      <span>扫描龄</span><span class="mono" id="scan-age2">—</span>
+      <span>正前</span><span class="mono" id="front">—</span>
+    </div>
+    <div id="sectors"></div>
+  </section>
+</main>
+
+<footer>左图是 GMapping 的 /map（降采样栅格），不是原分辨率；右图是 /scan 降采样。位姿是 odom 坐标。</footer>
+
+<script>
+const WS_URL = "__WS_URL__";
+const $ = (id) => document.getElementById(id);
+let socket = null;
+let lastPose = null;
+let lastMap = null;
+let mapSource = null;
+const mapBitmap = document.createElement("canvas");
+
+function buildMapBitmap(payload) {
+  const { width, height, data_b64: encoded } = payload;
+  mapBitmap.width = width;
+  mapBitmap.height = height;
+  const ctx = mapBitmap.getContext("2d");
+  const image = ctx.createImageData(width, height);
+  const raw = atob(encoded);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const value = raw.charCodeAt(y * width + x);
+      const signed = value > 127 ? value - 256 : value;
+      const palette = signed < 0 ? [32, 38, 46] : signed > 50 ? [10, 13, 18] : [201, 209, 217];
+      const at = (y * width + x) * 4;
+      image.data[at] = palette[0];
+      image.data[at + 1] = palette[1];
+      image.data[at + 2] = palette[2];
+      image.data[at + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+}
+let lastSeq = 0;
+let lastStateAt = 0;
+let lastMapPaintAt = 0;
+
+function connect() {
+  socket = new WebSocket(WS_URL);
+  socket.onopen = () => { $("link").textContent = "已连接"; $("link").className = "pill ok"; };
+  socket.onclose = () => {
+    $("link").textContent = "已断开"; $("link").className = "pill bad";
+    setTimeout(connect, 1000);
+  };
+  socket.onmessage = (event) => {
+    let message;
+    try { message = JSON.parse(event.data); } catch (error) { return; }
+    if (message.t === "state") onState(message);
+    else if (message.t === "scan") drawScan(message);
+    else if (message.t === "map") { lastMap = message; paintMap(message, lastPose); }
+  };
+}
+
+function onState(state) {
+  if (state.seq && state.seq <= lastSeq) return;
+  const now = performance.now();
+  const age = lastStateAt ? Math.round(now - lastStateAt) : 0;
+  lastSeq = state.seq || lastSeq;
+  lastStateAt = now;
+  lastPose = state.pose || lastPose;
+  $("heartbeat").textContent = `seq ${lastSeq} · ${age} ms`;
+  $("link").className = "pill " + (age < 500 ? "ok" : age < 2000 ? "warn" : "bad");
+  const scan = state.scan || {};
+  const text = scan.age_s == null ? "未知" : `${Number(scan.age_s).toFixed(2)} s`;
+  $("scan-age").textContent = `scan ${text}`;
+  $("scan-age2").textContent = scan.age_s == null ? "未知" : `${Number(scan.age_s).toFixed(2)} s · ${scan.valid ?? "?"} 点`;
+  $("front").textContent = scan.front_m == null ? "未知" : `${Number(scan.front_m).toFixed(2)} m`;
+  if (lastPose) $("pose-meta").textContent =
+    `x ${Number(lastPose[0]).toFixed(2)} y ${Number(lastPose[1]).toFixed(2)} yaw ${(Number(lastPose[2]) * 180 / Math.PI).toFixed(0)}°`;
+
+  const box = $("sectors");
+  box.innerHTML = "";
+  (state.sectors || []).forEach((row) => {
+    const distance = row.min_m;
+    let cls = "unknown";
+    let text = "未知";
+    if (typeof distance === "number") {
+      text = distance.toFixed(2);
+      cls = distance <= 0.35 ? "blocked" : distance <= 0.75 ? "tight" : "clear";
+    }
+    const cell = document.createElement("div");
+    cell.className = `sector ${cls}`;
+    cell.innerHTML = `<div>${row.sector}</div><div class="mono">${text}</div>`;
+    box.appendChild(cell);
+  });
+  if (lastMap && now - lastMapPaintAt > 200) {
+    lastMapPaintAt = now;
+    paintMap(lastMap, lastPose);
+  }
+}
+
+function paintMap(payload, pose) {
+  const canvas = $("map");
+  const ctx = canvas.getContext("2d");
+  const { width, height, resolution, origin, data_b64: encoded } = payload || {};
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!width || !height || !encoded) {
+    $("map-meta").textContent = payload && payload.error ? payload.error : "暂无地图";
+    return;
+  }
+  const scale = Math.min(canvas.width / width, canvas.height / height);
+  const offsetX = (canvas.width - width * scale) / 2;
+  const offsetY = (canvas.height - height * scale) / 2;
+  if (payload !== mapSource) {
+    buildMapBitmap(payload);
+    mapSource = payload;
+  }
+  ctx.save();
+  ctx.translate(offsetX, offsetY + height * scale);
+  ctx.scale(1, -1);
+  ctx.drawImage(mapBitmap, 0, 0, width * scale, height * scale);
+  ctx.restore();
+  if (pose && origin && typeof origin.x === "number" && typeof origin.y === "number") {
+    const px = (pose[0] - origin.x) / resolution;
+    const py = (pose[1] - origin.y) / resolution;
+    ctx.save();
+    ctx.translate(offsetX + px * scale, offsetY + (height - 1 - py) * scale);
+    ctx.rotate(-(pose[2] || 0));
+    ctx.fillStyle = "#58a6ff";
+    ctx.beginPath();
+    ctx.moveTo(9, 0); ctx.lineTo(-6, 5); ctx.lineTo(-6, -5); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  $("map-meta").textContent = `${width}×${height} · ${Number(resolution).toFixed(3)} m/px`;
+}
+
+function drawScan(payload) {
+  const canvas = $("lidar");
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!payload || !Array.isArray(payload.ranges)) return;
+  const originX = canvas.width / 2;
+  const originY = canvas.height - 16;
+  const radius = Math.min(canvas.width / 2 - 12, canvas.height - 32);
+  const finite = payload.ranges.filter((value) => typeof value === "number" && Number.isFinite(value) && value > 0);
+  const maxRange = Math.max(1.0, ...finite);
+  ctx.strokeStyle = "#30363d";
+  ctx.lineWidth = 1;
+  for (const fraction of [0.25, 0.5, 0.75, 1]) {
+    ctx.beginPath(); ctx.arc(originX, originY, radius * fraction, Math.PI, 2 * Math.PI); ctx.stroke();
+  }
+  ctx.beginPath(); ctx.moveTo(originX, originY - radius); ctx.lineTo(originX, originY); ctx.stroke();
+  ctx.fillStyle = "#3fb950";
+  payload.ranges.forEach((range, index) => {
+    if (typeof range !== "number" || !Number.isFinite(range) || range <= 0) return;
+    const angle = payload.angle_min + index * payload.angle_increment;
+    const r = Math.min(1, range / maxRange) * radius;
+    ctx.fillRect(originX - Math.sin(angle) * r - 1, originY - Math.cos(angle) * r - 1, 2, 2);
+  });
+  ctx.fillStyle = "#58a6ff";
+  ctx.fillRect(originX - 2, originY - 2, 4, 4);
+}
+
+setInterval(() => {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  if (lastStateAt && performance.now() - lastStateAt > 1500) {
+    $("heartbeat").textContent = `seq ${lastSeq} · 心跳中断 ${Math.round(performance.now() - lastStateAt)} ms`;
+  }
+}, 500);
+
+connect();
+</script>
+</body>
+</html>

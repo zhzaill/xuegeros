@@ -1,0 +1,61 @@
+{
+  "schema": "xuegeros.skills.v1",
+  "version": "1",
+  "sectors": 12,
+  "notes": "小脑技能表。改行为先改这里：primitive 决定执行方式，params 决定接受的参数与边界。未知技能会被拒绝并回执。",
+  "skills": {
+    "forward": {
+      "primitive": "advance",
+      "params": {
+        "sector": { "type": "int", "min": 0, "max": 11, "required": false },
+        "distance_m": { "type": "float", "min": 0.02, "max": 0.15, "required": false, "default": 0.12 }
+      },
+      "options": { "turn_first_deg": 15.0 },
+      "preconditions": ["scan_fresh", "odom_fresh", "front_clear"],
+      "note": "不给扇区就沿当前车头直行；给了扇区才先转到扇区中心再走（12 扇区中心落在 ±15°，没有正对车头的扇区，所以默认值不能是 6）"
+    },
+    "back": {
+      "primitive": "retreat",
+      "params": {
+        "sector": { "type": "int", "min": 0, "max": 11, "required": false },
+        "distance_m": { "type": "float", "min": 0.02, "max": 0.15, "required": false, "default": 0.10 }
+      },
+      "preconditions": ["scan_fresh", "odom_fresh", "rear_clear"],
+      "note": "直线后退一小步；按请求扇区的反方向检查净空，不带转向"
+    },
+    "face": {
+      "primitive": "turn_in_place",
+      "params": {
+        "sector": { "type": "int", "min": 0, "max": 11, "required": true }
+      },
+      "preconditions": ["scan_fresh", "odom_fresh", "turn_clear"],
+      "note": "原地转到扇区中心，不前进；用于「左看 / 右看」"
+    },
+    "open_space": {
+      "primitive": "best_open",
+      "params": {
+        "distance_m": { "type": "float", "min": 0.02, "max": 0.20, "required": false, "default": 0.20 }
+      },
+      "preconditions": ["scan_fresh", "odom_fresh", "front_clear"],
+      "note": "自行挑最空的扇区前进（几何优先）"
+    },
+    "left": {
+      "primitive": "turn_fixed",
+      "params": {},
+      "preconditions": ["scan_fresh", "odom_fresh", "turn_clear"],
+      "note": "固定角度左转（旧接口，保留兼容）"
+    },
+    "right": {
+      "primitive": "turn_fixed",
+      "params": {},
+      "preconditions": ["scan_fresh", "odom_fresh", "turn_clear"],
+      "note": "固定角度右转（旧接口，保留兼容）"
+    },
+    "stop": {
+      "primitive": "zero",
+      "params": {},
+      "preconditions": [],
+      "note": "立即零速；不依赖传感器健康"
+    }
+  }
+}

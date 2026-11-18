@@ -1,0 +1,7 @@
+# Preserve release input bytes across checkouts so npm pack reproduces the published tarball.
+/agent_control/** -text
+/coo-world-xuegeros/** -text
+/sim/** -text
+/mcp-xuegeros/xuegeros_mcp/vendor/three/** -text -whitespace
+/tools/enable_sim_lan.ps1 -text
+*.stl -text

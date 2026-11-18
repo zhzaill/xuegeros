@@ -1,0 +1,45 @@
+{
+  "date": "2026-11-18",
+  "plugin_version": "0.2.10",
+  "scope": "Local simulation observation panel; no agent motion commands, push or publication",
+  "electron": {
+    "application": "Coopanion 0.2.21",
+    "validation": "Native window capture and Windows UI Automation",
+    "workbench_image_age_s": 0.2,
+    "truth_fallback_image_age_s": 0.5,
+    "workbench_evidence": "D:/11/Projects/xuegeros/tmp/coo-electron-foreground.png",
+    "fallback_evidence": "D:/11/Projects/xuegeros/tmp/coo-electron-after-refresh.png",
+    "source_inspection": "D:/11/Tools/coo/resources/app/app/main.cjs:serveWindow",
+    "source_finding": "HTTP protocol handler forwards Core and pet origins only; isLocal is not the final access check",
+    "runtime_console_of_old_iframe": "unavailable",
+    "old_0_2_9_module_error": "Resolved by refreshing the native window after version 0.2.10 activation"
+  },
+  "image_transport": {
+    "panel_method": "image",
+    "host_api": "invokeBinary",
+    "display": "Blob object URL; revoked on replacement and unmount",
+    "allowed_origin": "http://127.0.0.1:18142",
+    "paths": ["/api/map.png", "/api/workbench/frames/<positive integer>.png"],
+    "png_max_bytes": 2000000,
+    "timeout_ms": 5000,
+    "redirects": "error"
+  },
+  "final_read_only_snapshot": {
+    "physical": false,
+    "state": "DONE",
+    "coo_seq": 291201,
+    "coo_pose": [0.201, 0.175, 3.142],
+    "frame_seq": 1769,
+    "frame_age_s": 0.379,
+    "frame_pose": [0.201, 0.175, 3.142],
+    "applied": [0.0, 0.0],
+    "port_18202_listening": false
+  },
+  "tests": {"coo_passed": 28},
+  "limitations": [
+    "3D PNGs require an open, updating workbench page; otherwise the panel shows a labeled SDF truth position map",
+    "Neither image source is a camera or SLAM result",
+    "Window occlusion/background throttling can pause rendering; foreground native window was used for visual verification",
+    "User operated the simulation during observation; those motions are not claimed as agent acceptance actions"
+  ]
+}

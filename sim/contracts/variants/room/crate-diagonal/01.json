@@ -1,0 +1,22 @@
+{
+  "schema": "xuegeros.coverage.variant.v1",
+  "variant_id": "room/crate-diagonal/01",
+  "scene_family": "room",
+  "world": "sim/xuegeros_sim/worlds/room.world",
+  "instruction_id": "sweep-room/zh/v1",
+  "instruction_text": "把这个房间扫完，最后回到起点。",
+  "seed": 20261118,
+  "start_pose": [0.0, 0.0, 0.7854],
+  "lane": {
+    "length_m": 0.8,
+    "width_m": 0.45,
+    "max_lanes": 3
+  },
+  "acceptance": {
+    "min_known_cells": 1200,
+    "max_runtime_s": 240,
+    "return_distance_m": 0.2,
+    "no_forbidden_state": ["no_progress"]
+  },
+  "notes": "同一房间，起步朝向 45 度，车道斜穿箱体间隙：用来区分“扫到什么”是起步朝向造成的，还是策略造成的。"
+}

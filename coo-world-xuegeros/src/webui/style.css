@@ -1,0 +1,10 @@
+/* Components use the host theme; numeric facts keep a monospace face. */
+.xuegeros-panel { min-width:0; max-width:100%; }
+.xuegeros-panel .xuegeros-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-start; min-width:0; }
+.xuegeros-panel .statgrid { grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); min-width:0; }
+.xuegeros-panel .stat .v { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.xuegeros-view-links { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-start; gap:12px; margin-top:8px; }
+.xuegeros-panel .xuegeros-tuning { margin-top:12px; border-top:1px solid var(--line, var(--borderColor-default)); padding-top:12px; }
+.xuegeros-panel .xuegeros-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin:12px 0; }
+.xuegeros-fields label { display:grid; gap:4px; }
+.xuegeros-fields input { width:100%; font:inherit; font-family:ui-monospace,Consolas,monospace; }

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XuegerOS 本机仿真</title>
+<style>
+  :root { color-scheme: dark; --bg:#0d1117; --panel:#161b22; --line:#3d444d; --text:#f0f6fc; --muted:#9198a1; --green:#3fb950; --red:#f85149; --amber:#d29922; --accent:#4493f8; --button:#21262d; }
+  * { box-sizing:border-box; }
+  body { margin:0; height:100vh; overflow:hidden; background:var(--bg); color:var(--text); font:14px/1.45 "Segoe UI","Microsoft YaHei",sans-serif; }
+  header { position:absolute; z-index:2; inset:0 0 auto; height:52px; display:flex; align-items:center; gap:16px; padding:0 16px; background:var(--bg); border-bottom:1px solid var(--line); }
+  h1 { margin:0; font-size:16px; font-weight:600; }
+  #health { color:var(--muted); }
+  #health[data-online="true"] { color:var(--green); }
+  #health[data-online="false"] { color:var(--red); }
+  main { height:100%; display:grid; grid-template-columns:minmax(0,1fr) 320px; padding-top:52px; }
+  #view { width:100%; height:100%; display:block; }
+  aside { border-left:1px solid var(--line); background:var(--panel); padding:16px; display:flex; flex-direction:column; gap:12px; overflow:auto; }
+  dl { display:grid; grid-template-columns:1fr auto; gap:8px 12px; margin:0; }
+  dt { color:var(--muted); } dd { margin:0; font-family:ui-monospace,Consolas,monospace; font-variant-numeric:tabular-nums; }
+  .controls { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  button { min-height:40px; border:1px solid var(--line); border-radius:6px; background:var(--button); color:var(--text); font:inherit; cursor:pointer; }
+  button:hover { border-color:var(--muted); }
+  button:active { transform:translateY(1px); }
+  button:focus-visible, select:focus-visible, summary:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  #stop { grid-column:1/-1; color:var(--red); }
+  #tour-start { color:var(--accent); }
+  .tour-card { border:1px solid var(--line); border-radius:6px; padding:12px; display:grid; gap:12px; background:var(--bg); }
+  .tour-card h2 { margin:0; font-size:16px; font-weight:600; }
+  .tour-card dl { font-size:12px; }
+  summary { cursor:pointer; color:var(--muted); }
+  #note { margin:0; color:var(--muted); font-size:12px; }
+  #result { min-height:24px; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--green); }
+  #result[data-state="rejected"], #result[data-state="error"] { color:var(--red); }
+  #strategy { margin:0; font-size:11px; color:var(--muted); }
+  #strategy[data-level="busy"] { color:var(--amber); }
+  #strategy[data-level="warn"] { color:var(--amber); }
+  label { display:grid; gap:5px; color:var(--muted); font-size:12px; }
+  #control-fields { display:grid; gap:8px; margin:12px 0; }
+  input { min-height:32px; width:100%; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--text); padding:4px 8px; font:14px ui-monospace,Consolas,monospace; }
+  input:focus-visible, a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  #interfaces { display:grid; gap:8px; margin-top:12px; font:12px ui-monospace,Consolas,monospace; overflow-wrap:anywhere; }
+  #interfaces a { color:var(--accent); }
+  select { min-height:36px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--text); padding:0 8px; font:inherit; }
+  #backend { color:var(--amber); font-size:12px; }
+  #limits { color:var(--muted); font-size:11px; line-height:1.4; margin:0; }
+  .comparison { display:grid; grid-template-columns:1fr 1fr; gap:10px; color:var(--muted); font-size:11px; line-height:1.4; }
+  .comparison strong { display:block; color:var(--text); font-size:12px; font-weight:600; margin-bottom:3px; }
+  .section { border-top:1px solid var(--line); padding-top:10px; }
+  .section > strong { display:block; font-size:12px; font-weight:600; margin-bottom:6px; }
+  .sensors { list-style:none; margin:0; padding:0; display:grid; gap:6px; font-size:11px; line-height:1.35; }
+  .sensors li { border-left:3px solid var(--line); padding:3px 0 3px 8px; color:var(--muted); overflow-wrap:anywhere; }
+  .sensors li[data-state="ok"] { border-left-color:var(--green); }
+  .sensors li[data-state="stale"] { border-left-color:var(--amber); }
+  .sensors li[data-state="missing"], .sensors li[data-state="unavailable"] { border-left-color:var(--red); }
+  .sensors code { color:var(--text); font-size:11px; }
+  .sensors .detail { color:var(--muted); }
+  #contract-stamp { margin:0; color:var(--muted); font-size:11px; }
+  #contract-stamp[data-stale="true"] { color:var(--amber); }
+  .view-actions { display:flex; gap:8px; margin-left:auto; }
+  .view-actions button { min-height:32px; padding:0 12px; }
+  .view-actions button[aria-pressed="true"] { color:var(--accent); border-color:var(--accent); }
+  body.embedded header { height:44px; gap:8px; padding:0 8px; }
+  body.embedded h1, body.embedded #backend, body.embedded aside { display:none; }
+  body.embedded main { display:block; height:100vh; min-height:0; padding-top:44px; }
+  body.embedded { height:100vh; min-height:0; overflow:hidden; }
+  #live-pose { position:absolute; z-index:2; bottom:8px; left:8px; max-width:calc(100% - 16px); padding:4px 8px; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:6px; font:12px ui-monospace,Consolas,monospace; }
+  @media (max-width:760px) { body { overflow:auto; height:auto; min-height:100vh; } main { min-height:100vh; height:auto; grid-template-columns:1fr; grid-template-rows:minmax(55vh,1fr) auto; } aside { border:0; border-top:1px solid var(--line); } }
+</style>
+</head>
+<body>
+<header><h1>仿真工作台</h1><span id="health" data-online="false">等待本机 robotd</span><span id="backend">运动学影子后端</span><div class="view-actions"><button id="near-car" title="固定近景，观察车辆实际位移">固定近景</button><button id="follow-car" title="近距离跟随车辆，拖动可调整视角" aria-pressed="false">跟随小车</button><button id="room-view" title="查看整个房间">全房间</button></div></header>
+<output id="live-pose" aria-label="实时车辆位姿与状态">等待实时位姿</output>
+<main>
+  <canvas id="view" aria-label="本机影子仿真场景与小车"></canvas>
+  <aside>
+    <label>场景<select id="scene-select" aria-label="仿真场景"><option>加载场景…</option></select></label>
+    <p id="limits">等待后端能力说明</p>
+    <section class="tour-card" aria-label="房间巡游任务">
+      <h2>房间巡游</h2>
+      <p id="strategy" role="status" aria-live="polite">读取任务状态…</p>
+      <dl>
+        <dt>当前阶段</dt><dd id="tour-stage">—</dd>
+        <dt>任务用时</dt><dd id="tour-time">—</dd>
+        <dt>距起点</dt><dd id="tour-home">—</dd>
+        <dt>已观测格</dt><dd id="tour-known">—</dd>
+        <dt>任务里程</dt><dd id="tour-travel">—</dd>
+      </dl>
+      <div class="controls">
+        <button id="tour-start" data-tour="start" title="探索当前房间并返回起点" disabled>开始巡游</button>
+        <button data-tour="pause" title="暂停并保留任务" disabled>暂停</button>
+        <button data-tour="resume" title="重新检查传感器后继续任务" disabled>继续</button>
+        <button data-tour="cancel" title="取消当前任务并停车" disabled>取消任务</button>
+        <button id="stop" title="立即停止所有运动">立即停车</button>
+      </div>
+      <div id="result" role="status" aria-live="polite"></div>
+      <details><summary title="展开手动单步操作">手动操作</summary><div class="controls">
+        <button data-goal="left" title="向左转">左转</button><button data-goal="right" title="向右转">右转</button>
+        <button data-goal="forward" title="沿车头方向前进 0.10 米">前进 0.10 m</button><button data-goal="face" data-sector="6" title="朝向雷达扇区 6">朝向扇区 6</button>
+      </div></details>
+    </section>
+    <details id="control-panel"><summary title="编辑执行参数">中控与小脑</summary>
+      <div id="control-fields"></div><div class="controls"><button id="control-save" title="保存并应用参数">保存参数</button><button id="control-reload" title="重新读取参数">重新读取</button></div>
+      <p id="control-status" role="status" aria-live="polite"></p>
+    </details>
+    <details><summary title="查看 HTTP 与 WebSocket 接口">接口</summary><div id="interfaces"></div></details>
+    <details><summary title="展开仿真能力与来源说明">运行说明与边界</summary>
+    <div class="comparison section">
+      <div><strong>本工作台 · 影子</strong>运动学与二维障碍近似；复用 robotd / 小脑协议、URDF 模型和 SDF 场景。</div>
+      <div><strong>Gazebo · 物理仿真</strong>运行碰撞接触、惯量、摩擦和传感器插件；应以 Gazebo 结果验收物理行为。</div>
+      <div><strong>画面投影阴影</strong>Three.js 灯光产生的视觉效果，只帮助看清几何位置。</div>
+      <div><strong>不代表</strong>阴影画面不证明有物理引擎、轮胎接触或动力学准确性。</div>
+      <div><strong>本页 3D 画面</strong>工作台渲染，供人看位姿与雷达射线，随刷新变化。</div>
+      <div><strong>不是相机证据</strong>仿真无相机；相机缺失时标 unavailable，绝不用工作台画面或 MJPEG 顶替。</div>
+    </div>
+    </details>
+    <div class="section"></div>
+    <dl>
+      <dt>目标</dt><dd>本机运动学仿真</dd>
+      <dt>物理输出</dt><dd id="physical">false</dd>
+      <dt>robotd</dt><dd id="state">—</dd>
+      <dt>位姿 x / y</dt><dd id="pose">—</dd>
+      <dt>朝向</dt><dd id="yaw">—</dd>
+      <dt>累计里程</dt><dd id="distance">—</dd>
+      <dt>模型来源</dt><dd id="model">—</dd>
+      <dt>几何</dt><dd id="mesh">—</dd>
+    </dl>
+    <div class="section">
+      <strong>传感器（按契约 §3，缺失即不可用）</strong>
+      <ul id="sensors" class="sensors"><li>读取中…</li></ul>
+    </div>
+    <div class="section">
+      <strong>地图来源（按契约 §4，三张图不混用）</strong>
+      <ul id="maps" class="sensors"><li>读取中…</li></ul>
+      <p id="contract-stamp">契约快照 —</p>
+    </div>
+    <p id="note">Coo 与此页共用本机 robotd goal 协议；不接受原始速度。后端固定 physical=false，命令只在本机运动学模型中执行。本页 3D 画面是工作台渲染，不是相机证据。</p>
+  </aside>
+</main>
+<script type="importmap">
+{ "imports": { "three": "/vendor/three/three.module.js" } }
+</script>
+<script type="module" src="/app.js"></script>
+<script type="module" src="/control.js"></script>
+</body>
+</html>

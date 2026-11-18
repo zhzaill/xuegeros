@@ -1,0 +1,70 @@
+{
+  "scope": "local simulation only",
+  "physical": false,
+  "entry": "http://127.0.0.1:18142/",
+  "coo_entry": "http://127.0.0.1:17788/#/provider/world%3Axuegeros",
+  "workbench_embed": "http://127.0.0.1:18142/?embed=1",
+  "tested_code_commit": "7729c30",
+  "local_clone": {
+    "directory": "D:/11/Repos/xuegeros-local-tour-7729c30",
+    "clean_before_and_after_tests": true,
+    "tests_run": 358,
+    "passed": 357,
+    "skipped": 1,
+    "agent_control": 211,
+    "sim": 25,
+    "adapters_and_ros_graph": 36,
+    "mcp": 62,
+    "coo": 24,
+    "remote_origin_reproduction": false
+  },
+  "coo_complete_run": {
+    "request_id": "strategy-1794985390978",
+    "reason": "reached",
+    "elapsed_s": 167.9,
+    "known_cells": 14117,
+    "known_cells_source": "sim_truth_seen/v1",
+    "traveled_m": 6.924,
+    "home_distance_m": 0.18,
+    "acceptance_met": true,
+    "completion_event_seq": 15
+  },
+  "coo_visible_run": {
+    "start_pose": [0.051, 0.003, 0.118],
+    "observed_pose": [0.577, 0.337, 1.592],
+    "observed_elapsed_s": 19.1,
+    "observed_traveled_m": 0.814,
+    "pause": "accepted",
+    "stop": "accepted",
+    "post_stop_applied": [0.0, 0.0],
+    "visual_evidence": "Coo panel iframe renders the live Three.js workbench and follows the car"
+  },
+  "completion_receipt": "D:/11/Projects/xuegeros/tmp/coo-tour-completion-event.json",
+  "full_run_receipt": "D:/11/Projects/xuegeros/tmp/coo-tour-acceptance.json",
+  "regression_receipts": [
+    "D:/11/Projects/xuegeros/tmp/tour-open-final.json",
+    "D:/11/Projects/xuegeros/tmp/tour-difficult-production.json",
+    "D:/11/Projects/xuegeros/tmp/tour-difficult-50hz.json"
+  ],
+  "ui_screenshot": "D:/11/Projects/xuegeros/tmp/coo-live-tour.png",
+  "final_panel_screenshot": "D:/11/Projects/xuegeros/tmp/coo-panel-final.png",
+  "observation_sync_receipt": "D:/11/Projects/xuegeros/tmp/observation-sync-20261118.json",
+  "observation_sync": {
+    "deployment": "simulation",
+    "physical": false,
+    "before_pose": [0, 0, 0],
+    "after_pose_coo_workbench_and_png": [0.101, 0, 0],
+    "applied_after": [0, 0],
+    "step_m": 0.1008,
+    "state": "DONE",
+    "default_view": "fixed near view",
+    "map": "SDF truth PNG; not SLAM",
+    "ros": "ros_unavailable_in_simulation",
+    "camera_front": "camera_unavailable_in_simulation"
+  },
+  "limits": [
+    "The embedded view is a workbench render, not camera evidence.",
+    "The shadow backend does not provide camera, ultrasonic, IMU or SLAM.",
+    "No physical output, publication or remote push was performed."
+  ]
+}

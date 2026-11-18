@@ -1,0 +1,22 @@
+{
+  "schema": "xuegeros.coverage.variant.v1",
+  "variant_id": "room/default/01",
+  "scene_family": "room",
+  "world": "sim/xuegeros_sim/worlds/room.world",
+  "instruction_id": "sweep-room/zh/v1",
+  "instruction_text": "把这个房间扫完，最后回到起点。",
+  "seed": 20261117,
+  "start_pose": [0.0, 0.0, 0.0],
+  "lane": {
+    "length_m": 1.0,
+    "width_m": 0.6,
+    "max_lanes": 4
+  },
+  "acceptance": {
+    "min_known_cells": 2000,
+    "max_runtime_s": 300,
+    "return_distance_m": 0.2,
+    "no_forbidden_state": ["no_progress"]
+  },
+  "notes": "基准房间（6x6 m，4 墙 + 3 个箱体），从原点朝 +x 起步。车道参数只在这里出现，不进指令文本。"
+}

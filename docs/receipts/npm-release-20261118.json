@@ -1,0 +1,110 @@
+{
+  "package": "cortico-world-xuegeros@0.3.3",
+  "bytes": 383768,
+  "sha256": "57d1b4ac70d1c914d55e4d5406b9040919168ae1b98617884668bbcd9b1eb508",
+  "files": 49,
+  "clean_install": true,
+  "parameters": 24,
+  "displacement_m": 0.10065999999987976,
+  "max_applied_mps": 0.07,
+  "stopped": true,
+  "physical": false,
+  "custom_ports": true,
+  "lan_bind": true,
+  "lan_host_discovery": true,
+  "cross_host_verified": false,
+  "external_meshes_excluded": true,
+  "doctor": {
+    "python": "python",
+    "runtime": true,
+    "mapImages": true
+  },
+  "world": {
+    "cooWorldToRobotd": true,
+    "displacement_m": 0.04999999999999999,
+    "stopped": true,
+    "physical": false,
+    "bundledSource": true
+  },
+  "coo_install": {
+    "old_link_removed": true,
+    "directory_absent_before_install": true,
+    "registry_spec": "0.3.3",
+    "version": "0.3.3",
+    "runtime": "D:\\11\\Tools\\coo\\data\\extensions\\node_modules\\cortico-world-xuegeros\\runtime",
+    "runtime_present": true
+  },
+  "public_source_rebuild_sha256": "57d1b4ac70d1c914d55e4d5406b9040919168ae1b98617884668bbcd9b1eb508",
+  "public_source_rebuild_identical": true,
+  "tests": {
+    "agent_control": 211,
+    "agent_control_skipped": 1,
+    "sim": 32,
+    "coo": 32
+  },
+  "npm_url": "https://www.npmjs.com/package/cortico-world-xuegeros",
+  "notification_regression": {
+    "history_events": 16,
+    "restart_cycles": 2,
+    "duplicate_deliveries": 0,
+    "failed_delivery_retry": true,
+    "daemon_sequence_reuse": true
+  },
+  "registry_installed_coo_tour": {
+    "passed": true,
+    "phase": "DONE",
+    "reason": "reached",
+    "elapsed_s": 164.4,
+    "traveled_m": 6.967,
+    "known_cells": 14112,
+    "return_distance_m": 0.18,
+    "acceptance": {
+      "met": true,
+      "checks": {
+        "return_home": {
+          "limit_m": 0.2,
+          "actual_m": 0.18,
+          "met": true
+        },
+        "known_cells": {
+          "minimum": 2000,
+          "actual": 14112,
+          "source": "sim_truth_seen/v1",
+          "met": true
+        },
+        "runtime": {
+          "limit_s": 300,
+          "actual_s": 164.4,
+          "met": true
+        },
+        "forbidden_states": {
+          "forbidden": [
+            "no_progress"
+          ],
+          "seen": [],
+          "met": true
+        }
+      }
+    },
+    "lifecycle_passed": true,
+    "runtime_from_npm": true,
+    "external_meshes": true
+  },
+  "native_coo_restart": {
+    "before_count": 148,
+    "before_receipt_hash": "5275814f10ddc788d319eb247d9de8d267949bd6dea2018cc34b73f418cc2f80",
+    "cycles": [
+      {
+        "boot_changed": true,
+        "count": 148,
+        "receipt_hash": "5275814f10ddc788d319eb247d9de8d267949bd6dea2018cc34b73f418cc2f80"
+      },
+      {
+        "boot_changed": true,
+        "count": 148,
+        "receipt_hash": "5275814f10ddc788d319eb247d9de8d267949bd6dea2018cc34b73f418cc2f80"
+      }
+    ],
+    "passed": true
+  }
+}

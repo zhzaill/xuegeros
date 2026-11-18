@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XuegerOS · 3D 模型</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --line:#30363d; --text:#e6edf3; --dim:#8b949e; --accent:#58a6ff; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin:0; background:var(--bg); color:var(--text); overflow:hidden;
+         font:13px/1.5 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif; }
+  header { position:absolute; z-index:2; left:0; right:0; display:flex; gap:12px;
+           align-items:center; padding:9px 14px; background:linear-gradient(#0d1117ee,#0d111700); }
+  h1 { font-size:14px; margin:0; font-weight:600; }
+  .mono { font-family:ui-monospace,"Cascadia Mono",Consolas,monospace; color:var(--dim); }
+  button { background:#21262d; color:var(--text); border:1px solid var(--line); border-radius:6px;
+           padding:5px 9px; font-size:12px; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  #canvas { display:block; width:100%; height:100%; }
+  footer { position:absolute; z-index:2; left:0; right:0; bottom:0; padding:6px 14px;
+           color:var(--dim); font-size:11px; background:linear-gradient(#0d111700,#0d1117ee); }
+</style>
+</head>
+<body>
+<header>
+  <h1>3D 模型（URDF + STL）</h1>
+  <span class="mono" id="meta">加载中…</span>
+  <button id="refresh">重新加载</button>
+  <button id="reset">重置视角</button>
+</header>
+<canvas id="canvas"></canvas>
+<footer>模型来自 guest 遥测的 /v1/model 与 /v1/meshes（与 robot_state_publisher 同一份 URDF）。不是 MuJoCo 仿真。</footer>
+
+<script type="importmap">
+{ "imports": { "three": "/vendor/three/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "/vendor/three/OrbitControls.js";
+import { STLLoader } from "/vendor/three/STLLoader.js";
+
+const canvas = document.getElementById("canvas");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+renderer.setClearColor(0x0a0d12, 1);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x0a0d12, 2.0, 6.0);
+const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 100);
+camera.position.set(0.55, 0.45, 0.65);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.target.set(0, 0.06, 0);
+
+scene.add(new THREE.HemisphereLight(0xbfd4ff, 0x20262e, 1.1));
+const key = new THREE.DirectionalLight(0xffffff, 1.4);
+key.position.set(1.2, 2.0, 1.0);
+scene.add(key);
+const grid = new THREE.GridHelper(2.0, 40, 0x30363d, 0x21262d);
+scene.add(grid);
+
+const robot = new THREE.Group();
+// URDF/Gazebo are Z-up; three.js is Y-up. Without this, the car lies on its
+// back relative to the grid and camera. -90 deg about X maps URDF +Z to +Y.
+robot.rotation.x = -Math.PI / 2;
+scene.add(robot);
+const loader = new STLLoader();
+
+function resize() {
+  const width = canvas.clientWidth || window.innerWidth;
+  const height = canvas.clientHeight || window.innerHeight;
+  renderer.setSize(width, height, false);
+  camera.aspect = width / height;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize);
+
+const AXIS_X = new THREE.Vector3(1, 0, 0);
+const AXIS_Y = new THREE.Vector3(0, 1, 0);
+const AXIS_Z = new THREE.Vector3(0, 0, 1);
+
+function parseOrigin(element) {
+  const origin = element?.querySelector(":scope > origin");
+  const xyz = (origin?.getAttribute("xyz") || "0 0 0").split(/\s+/).map(Number);
+  const rpy = (origin?.getAttribute("rpy") || "0 0 0").split(/\s+/).map(Number);
+  return { xyz, rpy };
+}
+
+// URDF rpy is fixed-axis: R = Rz(yaw) * Ry(pitch) * Rx(roll).
+function originMatrix(element) {
+  const { xyz, rpy } = parseOrigin(element);
+  const quaternion = new THREE.Quaternion()
+    .multiply(new THREE.Quaternion().setFromAxisAngle(AXIS_Z, rpy[2] || 0))
+    .multiply(new THREE.Quaternion().setFromAxisAngle(AXIS_Y, rpy[1] || 0))
+    .multiply(new THREE.Quaternion().setFromAxisAngle(AXIS_X, rpy[0] || 0));
+  return new THREE.Matrix4().compose(
+    new THREE.Vector3(xyz[0] || 0, xyz[1] || 0, xyz[2] || 0),
+    quaternion,
+    new THREE.Vector3(1, 1, 1),
+  );
+}
+
+// child link -> { parent, local transform }. A URDF only nests visuals under
+// links; the link placement lives in the joint, so that tree must be walked.
+function readJoints(doc) {
+  const joints = new Map();
+  for (const joint of Array.from(doc.querySelectorAll("robot > joint"))) {
+    const parent = joint.querySelector(":scope > parent")?.getAttribute("link");
+    const child = joint.querySelector(":scope > child")?.getAttribute("link");
+    if (!parent || !child) continue;
+    joints.set(child, { parent, matrix: originMatrix(joint) });
+  }
+  return joints;
+}
+
+function linkResolver(joints) {
+  const cache = new Map();
+  const resolving = new Set();
+  function resolve(name) {
+    if (cache.has(name)) return cache.get(name);
+    if (resolving.has(name)) throw new Error(`URDF 关节成环：${name}`);
+    const joint = joints.get(name);
+    if (!joint) {
+      const identity = new THREE.Matrix4();
+      cache.set(name, identity);
+      return identity;
+    }
+    resolving.add(name);
+    const matrix = new THREE.Matrix4().multiplyMatrices(resolve(joint.parent), joint.matrix);
+    resolving.delete(name);
+    cache.set(name, matrix);
+    return matrix;
+  }
+  for (const name of joints.keys()) resolve(name);
+  return resolve;
+}
+
+function readMaterials(doc) {
+  const colors = new Map();
+  for (const element of Array.from(doc.querySelectorAll("robot > material"))) {
+    const name = element.getAttribute("name");
+    const rgba = element.querySelector(":scope > color")?.getAttribute("rgba");
+    if (name && rgba) colors.set(name, rgba.split(/\s+/).map(Number));
+  }
+  return colors;
+}
+
+const materialCache = new Map();
+function materialFor(visual, colors) {
+  const declared = visual.querySelector(":scope > material");
+  const rgbaText = declared?.querySelector(":scope > color")?.getAttribute("rgba");
+  const rgba = rgbaText
+    ? rgbaText.split(/\s+/).map(Number)
+    : colors.get(declared?.getAttribute("name"));
+  const key = rgba ? rgba.join(",") : "default";
+  if (!materialCache.has(key)) {
+    materialCache.set(key, new THREE.MeshStandardMaterial({
+      color: rgba ? new THREE.Color(rgba[0], rgba[1], rgba[2]) : new THREE.Color(0x9aa4b2),
+      metalness: 0.25,
+      roughness: 0.7,
+      transparent: rgba ? (rgba[3] ?? 1) < 1 : false,
+      opacity: rgba ? (rgba[3] ?? 1) : 1,
+    }));
+  }
+  return materialCache.get(key);
+}
+
+async function loadModel() {
+  // three r128 has no Object3D.clear(); remove children explicitly.
+  while (robot.children.length) robot.remove(robot.children[0]);
+  const meta = document.getElementById("meta");
+  meta.textContent = "加载中…";
+  const response = await fetch("/api/model");
+  const model = await response.json().catch(() => ({}));
+  if (!response.ok || !model.ok) {
+    meta.textContent = `模型不可用：${model.error || response.status}（先建立 18201 隧道）`;
+    return;
+  }
+  const doc = new DOMParser().parseFromString(model.urdf, "text/xml");
+  if (doc.querySelector("parsererror")) {
+    meta.textContent = "模型不可用：URDF 解析失败";
+    return;
+  }
+  const joints = readJoints(doc);
+  const resolveLink = linkResolver(joints);
+  const colors = readMaterials(doc);
+  const links = Array.from(doc.querySelectorAll("robot > link"));
+  const failures = [];
+  let loaded = 0;
+  let skipped = 0;
+  for (const link of links) {
+    const name = link.getAttribute("name") || "";
+    const linkGroup = new THREE.Group();
+    linkGroup.name = name;
+    linkGroup.applyMatrix4(resolveLink(name));
+    for (const visual of Array.from(link.querySelectorAll(":scope > visual"))) {
+      const meshElement = visual.querySelector(":scope > geometry > mesh");
+      if (!meshElement) continue;
+      const filename = meshElement.getAttribute("filename") || "";
+      const base = filename.split("/").pop();
+      if (!base.toLowerCase().endsWith(".stl")) { skipped += 1; continue; }
+      const scale = (meshElement.getAttribute("scale") || "1 1 1").split(/\s+/).map(Number);
+      try {
+        const geometry = await new Promise((resolve, reject) => {
+          loader.load(`/api/mesh/${encodeURIComponent(base)}`, resolve, undefined, () => reject(new Error(base)));
+        });
+        const object = new THREE.Mesh(geometry, materialFor(visual, colors));
+        object.scale.set(scale[0] || 1, scale[1] || 1, scale[2] || 1);
+        const visualGroup = new THREE.Group();
+        visualGroup.applyMatrix4(originMatrix(visual));
+        visualGroup.add(object);
+        linkGroup.add(visualGroup);
+        loaded += 1;
+      } catch (error) {
+        failures.push(base);
+      }
+    }
+    if (linkGroup.children.length) robot.add(linkGroup);
+  }
+  const box = new THREE.Box3().setFromObject(robot);
+  if (!box.isEmpty()) {
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    controls.target.copy(center);
+    camera.position.copy(center).add(new THREE.Vector3(size.x * 1.4, size.y * 2.2, size.z * 1.6));
+    controls.update();
+  }
+  const failed = failures.length ? ` · 失败 ${failures.join(",")}` : "";
+  meta.textContent = `${loaded} 网格 / ${links.length} 链 / ${joints.size} 关节`
+    + `${skipped ? ` · 跳过 ${skipped}` : ""}${failed} · URDF ${model.urdf_age_s ?? "?"} s 前`;
+}
+
+document.getElementById("refresh").onclick = () => loadModel().catch((e) => {
+  document.getElementById("meta").textContent = `加载失败：${e.message}`;
+});
+document.getElementById("reset").onclick = () => {
+  camera.position.set(0.55, 0.45, 0.65);
+  controls.target.set(0, 0.06, 0);
+  controls.update();
+};
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+resize();
+loadModel().catch((e) => {
+  document.getElementById("meta").textContent = `加载失败：${e.message}`;
+});
+animate();
+</script>
+</body>
+</html>

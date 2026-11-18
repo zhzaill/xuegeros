@@ -1,0 +1,22 @@
+{
+  "schema": "xuegeros.coverage.variant.v1",
+  "variant_id": "room_open/wide/01",
+  "scene_family": "room_open",
+  "world": "sim/xuegeros_sim/worlds/room_open.world",
+  "instruction_id": "sweep-open-room/zh/v1",
+  "instruction_text": "把这个空房间扫完，最后回到起点。",
+  "seed": 20261119,
+  "start_pose": [0.0, 0.0, 0.0],
+  "lane": {
+    "length_m": 1.6,
+    "width_m": 0.8,
+    "max_lanes": 5
+  },
+  "acceptance": {
+    "min_known_cells": 2500,
+    "max_runtime_s": 360,
+    "return_distance_m": 0.25,
+    "no_forbidden_state": ["no_progress"]
+  },
+  "notes": "无箱体的开阔房间：长车道 + 宽换道，用来测“几何干净时策略能不能跑完”，与带箱体的 room 族对照。"
+}

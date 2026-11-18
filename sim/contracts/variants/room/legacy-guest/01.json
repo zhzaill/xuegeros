@@ -1,0 +1,23 @@
+{
+  "schema": "xuegeros.coverage.variant.v1",
+  "variant_id": "room/legacy-guest/01",
+  "scene_family": "room",
+  "world": "sim/xuegeros_sim/worlds/room.world",
+  "world_sha256": null,
+  "instruction_id": "sweep-room/zh/v1",
+  "instruction_text": "把这个房间扫完，最后回到起点。",
+  "seed": 20261117,
+  "start_pose": [0.0, 0.0, 0.0],
+  "lane": {
+    "length_m": 0.9,
+    "width_m": 0.5,
+    "max_lanes": 3
+  },
+  "acceptance": {
+    "min_known_cells": 1200,
+    "max_runtime_s": 420,
+    "return_distance_m": 0.2,
+    "no_forbidden_state": ["no_progress"]
+  },
+  "notes": "原样承接 guest 上 coverage-shadow.yaml / coverage-physical.yaml 的车道参数（0.9 x 0.5，3 车道），供 ROS 适配层作默认变体；这是历史行为的快照，不是重新调参。"
+}

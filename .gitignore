@@ -4,3 +4,13 @@ output/
 __pycache__/
 *.pyc
 .acl-recovery/
+
+# Local agent/tooling artifacts (not project content)
+.claude/
+.dsh-acl-report/
+
+# Stray zero-byte placeholders at repo root (real scripts live in sim/probe, tools/)
+/coverage_watch.py
+/sim_probe.py
+/coo-world-xuegeros/runtime/
+/coo-world-xuegeros/*.tgz
