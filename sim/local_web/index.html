@@ -26,6 +26,10 @@
   button:disabled { opacity:.5; cursor:not-allowed; }
   #stop { grid-column:1/-1; color:var(--red); }
   #tour-start { color:var(--accent); }
+  #nav-start { color:var(--accent); }
+  #view[data-picking="true"] { cursor:crosshair; }
+  .nav-options { display:grid; gap:8px; margin-top:8px; }
+  #nav-pick[aria-pressed="true"] { color:var(--accent); border-color:var(--accent); }
   .tour-card { border:1px solid var(--line); border-radius:6px; padding:12px; display:grid; gap:12px; background:var(--bg); }
   .tour-card h2 { margin:0; font-size:16px; font-weight:600; }
   .tour-card dl { font-size:12px; }
@@ -77,13 +81,13 @@
   <aside>
     <label>场景<select id="scene-select" aria-label="仿真场景"><option>加载场景…</option></select></label>
     <p id="limits">等待后端能力说明</p>
-    <section class="tour-card" aria-label="房间巡游任务">
-      <h2>房间巡游</h2>
+    <section class="tour-card" aria-label="仿真行驶任务">
+      <h2>行驶任务</h2>
       <p id="strategy" role="status" aria-live="polite">读取任务状态…</p>
       <dl>
         <dt>当前阶段</dt><dd id="tour-stage">—</dd>
         <dt>任务用时</dt><dd id="tour-time">—</dd>
-        <dt>距起点</dt><dd id="tour-home">—</dd>
+        <dt id="task-distance-label">距起点</dt><dd id="tour-home">—</dd>
         <dt>已观测格</dt><dd id="tour-known">—</dd>
         <dt>任务里程</dt><dd id="tour-travel">—</dd>
       </dl>
@@ -94,6 +98,16 @@
         <button data-tour="cancel" title="取消当前任务并停车" disabled>取消任务</button>
         <button id="stop" title="立即停止所有运动">立即停车</button>
       </div>
+      <details id="nav-panel"><summary title="设置固定目的地">点选导航</summary>
+        <div class="nav-options">
+          <button id="nav-pick" type="button" title="切换到全房间视角并在地面选点" aria-pressed="false" disabled>在场景选点</button>
+          <div class="controls">
+            <label>X（米）<input id="nav-x" type="number" step="any" inputmode="decimal" disabled></label>
+            <label>Y（米）<input id="nav-y" type="number" step="any" inputmode="decimal" disabled></label>
+          </div>
+          <button id="nav-start" type="button" data-tour="start" data-strategy="navigate" title="规划到固定目标并开始导航" disabled>前往目标</button>
+        </div>
+      </details>
       <div id="result" role="status" aria-live="polite"></div>
       <details><summary title="展开手动单步操作">手动操作</summary><div class="controls">
         <button data-goal="left" title="向左转">左转</button><button data-goal="right" title="向右转">右转</button>

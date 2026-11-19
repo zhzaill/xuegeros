@@ -122,7 +122,7 @@
 
 ## 6. 长任务状态机
 
-长任务（tour / coverage）至少暴露这些状态与事件，单靠 `ACTIVE` 不合格：
+长任务（tour / coverage / 本机点选导航）至少暴露这些状态与事件，单靠 `ACTIVE` 不合格：
 
 ```text
 IDLE → STARTING → RUNNING ⇄ PAUSED
@@ -202,3 +202,9 @@ facts 带恢复 ID、阶段、实际后退与累计距离；失败不记作“�
 
 运行方法、原始证据路径与局限见 [LOCAL-TOUR-DELIVERY.md](LOCAL-TOUR-DELIVERY.md)。
 本节只收口本机影子仿真；guest、真车、SLAM 与真实传感器不在本次交付内。
+
+## 11. 本机点选导航
+
+`POST /api/strategy/start` 接收 `{"strategy":"navigate","target":[1.025,1.675]}`，坐标为 `map` 系中的 X/Y 米数，不使用场景变体。`GET /api/strategy` 的 `backend.navigation` 提供固定目标 `goal`、剩余折线 `route`、距目标 `distance_m`。进入 0.06 m 目标范围并停车时才计为到达。目标未观测、被占用、净空不足或无可通行路径时，任务进入 `BLOCKED` 并停止运动。
+
+路线使用 `sim_truth_seen/v1` 的已观测空闲格，避开膨胀后的占据格；折线只在经检查后合并，不切未知区或障碍角。点选导航和巡游共用任务租约、净空检查与生命周期，仿真不向真车转发该模式。本机巡游也复用折线检查，保留可用路线；追踪记录分别提供短路标 `target_id` 和探索路线终点 `route_goal_id`。

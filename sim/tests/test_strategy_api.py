@@ -271,5 +271,76 @@ class StrategyApiReplayTests(StrategyApiTestBase):
         self.assertEqual(payload["state"]["tour"]["phase"], StrategyPhase.RUNNING)
 
 
+class PointNavigationTests(StrategyApiTestBase):
+    def test_selected_target_routes_around_the_crate_and_stops(self):
+        goal = [1.025, 1.675]
+        now = time.monotonic()
+        self.sim.step(now, 0)
+        code, payload = self.post("/api/strategy/start", {"strategy": "navigate", "target": goal})
+        self.assertEqual(code, 200)
+        self.assertFalse(payload["physical"])
+        dt = 0.1
+        route_points = 0
+        for index in range(1, 700):
+            before = self.sim.pose
+            self.sim.step(now + index * dt, dt)
+            status = self.strategy.status()
+            nav = status["backend"]["navigation"]
+            self.assertEqual(nav["goal"], goal)
+            route_points = max(route_points, len(nav["route"]))
+            if self.sim.last_applied[0]:
+                self.assertNotEqual(self.sim.pose[:2], before[:2], "collision veto while driving")
+            if not status["busy"] or status["phase"] == "BLOCKED":
+                break
+        self.assertGreater(route_points, 1)
+        self.assertEqual((status["phase"], status["reason"]), ("DONE", "reached"))
+        self.assertLessEqual(math.dist(self.sim.pose[:2], goal), 0.06)
+        self.assertTrue(status["acceptance_result"]["checks"]["destination"]["met"])
+        stopped = self.sim.pose
+        self.sim.step(now + (index + 1) * dt, dt)
+        self.assertEqual(self.sim.pose, stopped)
+        self.assertEqual(self.sim.last_applied, (0.0, 0.0))
+
+    def test_navigation_rejects_invalid_input_and_stops_for_an_unknown_destination(self):
+        for target in ([0], [True, 0], [float("nan"), 0]):
+            with self.subTest(target=target):
+                code, payload = self.post("/api/strategy/start", {"strategy": "navigate", "target": target})
+                self.assertEqual((code, payload["error"], payload["busy"]), (400, "invalid_target", False))
+        now = time.monotonic()
+        self.sim.step(now, 0)
+        code, _ = self.post("/api/strategy/start", {"strategy": "navigate", "target": [1.85, 1.7]})
+        self.assertEqual(code, 200)
+        self.sim.step(now + 0.1, 0.1)
+        self.assertEqual(self.strategy.status()["reason"], "target_unknown")
+        self.assertEqual(self.sim.last_applied, (0.0, 0.0))
+
+    def test_navigation_pause_and_stop_hold_pose_and_keep_other_goals_out(self):
+        now = time.monotonic()
+        self.sim.step(now, 0)
+        self.post("/api/strategy/start", {"strategy": "navigate", "target": [0.65, 0]})
+        self.sim.step(now + 0.1, 0.1)
+        self.assertGreater(self.sim.last_applied[0], 0.0)
+        self.assertAlmostEqual(self.sim.pose[2], 0.0)
+        cursor = self.strategy.status()["events_cursor"]
+        code, payload = self.post("/api/strategy/pause")
+        self.assertEqual((code, payload["phase"]), (200, "PAUSED"))
+        self.assertGreater(payload["events_cursor"], cursor)
+        self.assertEqual(self.daemon.command({"t": "goal", "goal": "forward"})["error"], "busy")
+        position = self.sim.pose
+        for index in (2, 3, 4):
+            self.sim.step(now + index * 0.1, 0.1)
+            self.assertEqual(self.sim.pose, position)
+        code, payload = self.post("/api/strategy/resume")
+        self.assertEqual((code, payload["phase"]), (200, "RUNNING"))
+        self.sim.step(now + 0.5, 0.1)
+        self.assertGreater(self.sim.pose[0], position[0])
+        self.assertTrue(self.daemon.command({"t": "stop"})["accepted"])
+        position = self.sim.pose
+        for index in (6, 7, 8):
+            self.sim.step(now + index * 0.1, 0.1)
+            self.assertEqual(self.sim.pose, position)
+        self.assertFalse(self.strategy.holds_goal_lease())
+
+
 if __name__ == "__main__":
     unittest.main()

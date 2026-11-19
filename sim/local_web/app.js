@@ -315,18 +315,109 @@ let strategyBusy = false;
 let strategyAvailable = false;
 let strategyPending = false;
 let strategySnapshot = null;
+let strategyRequest = 0;
+const navPick = document.getElementById("nav-pick");
+const navInputs = [document.getElementById("nav-x"), document.getElementById("nav-y")];
+const navMarker = new THREE.Mesh(new THREE.RingGeometry(0.058, 0.078, 32),
+  new THREE.MeshBasicMaterial({color:0x4493f8, side:THREE.DoubleSide}));
+navMarker.rotation.x = -Math.PI / 2;
+navMarker.visible = false;
+scene.add(navMarker);
+const navRoute = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({color:0x4493f8}));
+navRoute.visible = false;
+scene.add(navRoute);
+let picking = false;
+let pointerStart = null;
 const phaseLabels = { IDLE:"未开始", STARTING:"准备中", RUNNING:"巡游中", PAUSED:"已暂停", BLOCKED:"受阻，已停车", TIMEOUT:"任务超时", HANDOVER:"需要接管", CANCELLED:"已取消" };
-const stageLabels = { EXPLORE:"探索房间", RETURN:"返回起点", CHECK_REAR:"检查后方", REVERSE:"后退脱困", SELECT_EXIT:"选择出口", TURN:"转向出口", EXIT:"离开障碍", REPLAN:"重新规划", FAILED:"脱困失败", DONE:"完成" };
+const stageLabels = { EXPLORE:"探索房间", RETURN:"返回起点", CHECK_REAR:"检查后方", REVERSE:"后退脱困", SELECT_EXIT:"选择出口", TURN:"转向出口", EXIT:"离开障碍", REPLAN:"重新规划", FAILED:"脱困失败", PLANNING:"规划路线", ALIGN:"转向路线", DRIVE:"沿路线行驶", BLOCKED:"已停车", DONE:"完成" };
+const navReasons = {
+  target_outside_map:"目标超出地图范围", target_unknown:"雷达尚未观测到目标区域",
+  target_occupied:"目标在障碍物内", target_clearance:"目标离障碍物太近",
+  target_unreachable:"没有通往目标的已知空闲路线", route_clearance:"路线净空不足",
+  navigation_path_blocked:"前方净空不足", front_scan_missing:"前方雷达数据缺失",
+  map_or_pose_missing:"等待地图或位姿", scan_invalid:"雷达数据无效",
+};
+function selectedTarget() {
+  return navInputs.every((input) => Number.isFinite(input.valueAsNumber))
+    ? navInputs.map((input) => input.valueAsNumber) : null;
+}
+function setPicking(enabled) {
+  picking = enabled;
+  pointerStart = null;
+  navPick.setAttribute("aria-pressed", String(enabled));
+  navPick.textContent = enabled ? "取消选点" : "在场景选点";
+  canvas.dataset.picking = String(enabled);
+}
+function updateNavigation(payload = strategySnapshot) {
+  const navigation = payload?.strategy === "navigate" ? payload.backend?.navigation : null;
+  const goal = payload?.busy ? navigation?.goal : selectedTarget();
+  const route = payload?.busy ? navigation?.route : null;
+  navMarker.visible = Boolean(goal);
+  if (goal) navMarker.position.set(goal[0], 0.014, -goal[1]);
+  navRoute.visible = Boolean(route?.length && lastPose);
+  if (navRoute.visible) {
+    navRoute.geometry.dispose();
+    navRoute.geometry = new THREE.BufferGeometry().setFromPoints(
+      [lastPose, ...route].map(([x, y]) => new THREE.Vector3(x, 0.025, -y)));
+  }
+}
+navPick.addEventListener("click", () => {
+  if (!picking) setView(false);
+  setPicking(!picking);
+});
+document.getElementById("nav-panel").addEventListener("toggle", (event) => {
+  if (!event.target.open) setPicking(false);
+});
+addEventListener("keydown", (event) => {
+  if (picking && event.key === "Escape") setPicking(false);
+});
+canvas.addEventListener("pointerdown", (event) => {
+  if (picking && event.button === 0) pointerStart = [event.clientX, event.clientY];
+});
+canvas.addEventListener("pointerup", (event) => {
+  if (!picking || !pointerStart || event.button !== 0 || !ground) return;
+  const distance = Math.hypot(event.clientX - pointerStart[0], event.clientY - pointerStart[1]);
+  pointerStart = null;
+  if (distance > 5) return;
+  const rect = canvas.getBoundingClientRect();
+  const ray = new THREE.Raycaster();
+  ray.setFromCamera(new THREE.Vector2(2 * (event.clientX - rect.left) / rect.width - 1,
+    1 - 2 * (event.clientY - rect.top) / rect.height), camera);
+  const hit = ray.intersectObjects([ground, ...room.children], false)[0];
+  if (!hit || hit.object !== ground) {
+    ui.result.textContent = "请选择场景内可见的地面";
+    ui.result.dataset.state = "rejected";
+    return;
+  }
+  const point = hit.point;
+  navInputs[0].value = point.x.toFixed(3);
+  navInputs[1].value = (-point.z).toFixed(3);
+  ui.result.textContent = "目标已选定。点击「前往目标」开始行驶。";
+  ui.result.dataset.state = "ok";
+  setPicking(false);
+  applyGoalButtons();
+  updateNavigation();
+});
+for (const input of navInputs) input.addEventListener("input", () => {
+  applyGoalButtons();
+  updateNavigation();
+});
 function goalButtons() {
   return [...document.querySelectorAll("[data-goal]")];
 }
 function applyGoalButtons() {
   for (const button of goalButtons()) button.disabled = strategyBusy || strategyPending;
   document.getElementById("scene-select").disabled = strategyBusy || strategyPending;
+  const navDisabled = !strategyAvailable || strategyBusy || strategyPending
+    || !strategySnapshot?.supported_strategies?.includes("navigate");
+  navPick.disabled = navDisabled;
+  for (const input of navInputs) input.disabled = navDisabled;
+  if (navDisabled && picking) setPicking(false);
   for (const button of document.querySelectorAll("[data-tour]")) {
     const action = button.dataset.tour;
     const phase = strategySnapshot?.phase;
-    button.disabled = !strategyAvailable || strategyPending || (
+    button.disabled = (button.dataset.strategy === "navigate" && (navDisabled || !selectedTarget()))
+      || !strategyAvailable || strategyPending || (
       action === "start" ? strategyBusy : action === "pause" ? phase !== "RUNNING" :
       action === "resume" ? !["PAUSED", "BLOCKED"].includes(phase) : !strategyBusy);
   }
@@ -334,20 +425,23 @@ function applyGoalButtons() {
 function setStrategyLine(text, level = "muted") {
   const line = document.getElementById("strategy");
   if (!line) return;
-  line.textContent = text;
+  if (line.textContent !== text) line.textContent = text;
   line.dataset.level = level;
 }
 async function refreshStrategy() {
+  const requestId = ++strategyRequest;
   let response;
   try {
     response = await fetch("/api/strategy");
   } catch (error) {
+    if (requestId !== strategyRequest) return;
     strategyAvailable = false;
     strategyBusy = true;
     applyGoalButtons();
     setStrategyLine("任务连接中断；请等待重连或停车", "warn");
     return;
   }
+  if (requestId !== strategyRequest) return;
   if (response.status === 404) {
     strategyBusy = false;
     strategyAvailable = false;
@@ -366,29 +460,44 @@ async function refreshStrategy() {
   try {
     payload = await response.json();
   } catch (error) {
+    if (requestId !== strategyRequest) return;
     strategyAvailable = false;
     strategyBusy = true;
     applyGoalButtons();
     setStrategyLine("任务回执无法解析；请刷新或停车", "warn");
     return;
   }
+  if (requestId !== strategyRequest) return;
   strategyBusy = payload.busy === true;
   strategyAvailable = payload.physical === false && payload.available !== false;
   strategySnapshot = payload;
   applyGoalButtons();
   const backend = payload.backend || {};
   const stage = backend.navigation?.recovery?.stage || backend.phase;
-  const home = backend.return?.dist_to_start_m ?? backend.dist_to_home_m;
+  const navigating = payload.strategy === "navigate";
+  const distance = navigating ? backend.navigation?.distance_m : backend.return?.dist_to_start_m ?? backend.dist_to_home_m;
+  document.getElementById("task-distance-label").textContent = navigating ? "距目标" : "距起点";
   document.getElementById("tour-stage").textContent = stageLabels[stage] || stage || "—";
   document.getElementById("tour-time").textContent = `${Number(payload.elapsed_s || 0).toFixed(1)} s`;
-  document.getElementById("tour-home").textContent = home == null ? "—" : `${Number(home).toFixed(3)} m`;
+  document.getElementById("tour-home").textContent = distance == null ? "—" : `${Number(distance).toFixed(3)} m`;
   document.getElementById("tour-known").textContent = payload.facts?.known_cells == null ? "—" : `${payload.facts.known_cells}（射线已观测）`;
   document.getElementById("tour-travel").textContent = `${Number(payload.facts?.traveled_m || 0).toFixed(3)} m`;
-  const label = payload.phase === "DONE" ? (payload.reason === "reached" ? "巡游完成 · 已返回起点 · 验收通过" : payload.reason === "exhausted" ? "任务结束 · 指标未达成" : "已停车") : phaseLabels[payload.phase] || payload.phase;
-  setStrategyLine(`${label}${["BLOCKED", "TIMEOUT", "HANDOVER"].includes(payload.phase) ? ` · ${payload.reason}` : ""}`, strategyBusy ? "busy" : "idle");
+  let label = phaseLabels[payload.phase] || payload.phase;
+  if (navigating && payload.phase === "RUNNING") label = "导航中";
+  if (payload.phase === "DONE") {
+    if (payload.reason === "reached") label = navigating ? "已到达目标" : "巡游完成 · 已返回起点 · 验收通过";
+    else label = payload.reason === "exhausted" ? "任务结束 · 指标未达成" : "已停车";
+  }
+  const warning = ["BLOCKED", "TIMEOUT", "HANDOVER"].includes(payload.phase);
+  setStrategyLine(warning ? `${label} · ${navReasons[payload.reason] || payload.reason}` : label,
+    warning ? "warn" : strategyBusy ? "busy" : "idle");
+  updateNavigation(payload);
 }
-refreshStrategy();
-setInterval(refreshStrategy, 1000);
+async function pollStrategy() {
+  try { await refreshStrategy(); }
+  finally { setTimeout(pollStrategy, 1000); }
+}
+pollStrategy();
 
 for (const button of document.querySelectorAll("[data-tour]")) {
   button.addEventListener("click", async () => {
@@ -397,7 +506,11 @@ for (const button of document.querySelectorAll("[data-tour]")) {
     try {
       const action = button.dataset.tour;
       const scene = sceneSelect.value;
-      const body = action === "start" ? {strategy:"tour", variant_id:scene === "room_open" ? "room_open/wide/01" : "room/default/01"} : {};
+      let body = {};
+      if (action === "start") {
+        body = button.dataset.strategy === "navigate" ? {strategy:"navigate", target:selectedTarget()}
+          : {strategy:"tour", variant_id:scene === "room_open" ? "room_open/wide/01" : "room/default/01"};
+      }
       const response = await fetch(`/api/strategy/${action}`, {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(body)});
       const result = await response.json();
       ui.result.textContent = response.ok && result.accepted !== false ? "操作已接收" : `操作未执行：${result.error || result.reason || response.status}`;
@@ -428,21 +541,31 @@ for (const button of document.querySelectorAll("[data-goal]")) {
   });
 }
 document.getElementById("stop").addEventListener("click", async () => {
-  try { ui.result.textContent = JSON.stringify(await request({ t:"stop", reason:"sim_console" })); await refreshStrategy(); }
-  catch (error) { ui.result.textContent = String(error); }
+  try {
+    const response = await fetch("/api/command", { method:"POST", headers:{"content-type":"application/json"},
+      body:JSON.stringify({t:"stop", reason:"sim_console"}) });
+    const result = await response.json();
+    if (!response.ok || !result.accepted) throw new Error(result.error || response.statusText);
+    ui.result.textContent = "停车已确认";
+    ui.result.dataset.state = "ok";
+    await refreshStrategy();
+  } catch (error) {
+    ui.result.textContent = `未收到停车回执：${error}`;
+    ui.result.dataset.state = "error";
+  }
 });
 const sceneSelect = document.getElementById("scene-select");
-fetch("/api/scenes").then((r) => r.json()).then((scenes) => {
-  const current = scenes.find((item) => item.name === "room") || scenes[0];
+Promise.all(["/api/scenes", "/api/state"].map((url) => fetch(url).then((r) => r.json()))).then(([scenes, data]) => {
   sceneSelect.replaceChildren(...scenes.map((item) => {
     const option = document.createElement("option");
     option.value = item.name;
     option.textContent = item.name === "room" ? "room · 家具障碍场景" : "room_open · 空房场景";
     return option;
   }));
-  const chosen = scenes.find((item) => item.source.endsWith("/room.world")) || scenes[0];
+  const chosen = scenes.find((item) => item.name === data.scene?.name) || scenes[0];
   sceneSelect.value = chosen.name;
   renderScene(chosen);
+  if (data.physical === false) paint(data.state);
 }).catch((error) => { document.getElementById("limits").textContent = `场景加载失败：${error}`; });
 sceneSelect.addEventListener("change", async () => {
   sceneSelect.disabled = true;
@@ -451,16 +574,11 @@ sceneSelect.addEventListener("change", async () => {
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || response.statusText);
     renderScene(result.scene);
+    navInputs.forEach((input) => { input.value = ""; });
+    updateNavigation();
   } catch (error) { ui.result.textContent = `场景切换失败：${error}`; }
   finally { applyGoalButtons(); }
 });
-fetch("/api/state").then((r) => r.json()).then((data) => {
-  if (data.physical === false) paint(data.state);
-  if (data.scene) {
-    const sceneName = data.scene.name;
-    if ([...sceneSelect.options].some((option) => option.value === sceneName)) sceneSelect.value = sceneName;
-  }
-}).catch(() => {});
 loadModel().catch((error) => { ui.mesh.textContent = String(error); });
 
 // docs/SIM-CONTRACT.md §3/§4: the workbench must show what the backend can actually

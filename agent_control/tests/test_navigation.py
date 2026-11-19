@@ -2,7 +2,7 @@ import math
 import unittest
 
 from agent_control.explorer import FrontierExplorer, GridMap
-from agent_control.navigation import BODY_RADIUS_M, TURN_RANGE_M, GridRouter
+from agent_control.navigation import BODY_RADIUS_M, TURN_RANGE_M, GridRouter, segment_is_free
 
 
 class GridRouteTests(unittest.TestCase):
@@ -27,6 +27,13 @@ class GridRouteTests(unittest.TestCase):
     def test_footprint_includes_outer_wheels_and_lidar_offset(self):
         self.assertAlmostEqual(BODY_RADIUS_M, math.hypot(.0725, .081))
         self.assertGreater(TURN_RANGE_M, .18)
+
+    def test_a_smoothed_route_cannot_cut_past_an_unknown_corner(self):
+        grid = GridMap(2, 2, 1.0, 0, 0, [0, -1, 0, 0])
+        router = GridRouter(grid, (.5, .5, 0))
+        self.assertTrue(router.path((1, 1)))
+        self.assertFalse(segment_is_free(grid, router.free, (.5, .5), (1.5, 1.5)))
+        self.assertFalse(segment_is_free(grid, router.free, (1.5, 1.5), (.5, .5)))
 
 
 class MeasuredRecoveryTests(unittest.TestCase):

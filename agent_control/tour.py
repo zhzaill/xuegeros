@@ -15,7 +15,7 @@ from typing import Any, Mapping, Sequence
 
 from .explorer import FrontierExplorer, GridMap
 from .protocol import ActionProposal
-from .navigation import GridRouter, waypoint
+from .navigation import GridRouter, nearest_on_route, segment_is_free, smooth_route, waypoint
 
 IDLE = "IDLE"
 EXPLORE = "EXPLORE"
@@ -100,6 +100,7 @@ class TourController:
         min_battery_v: float = 7.0,
         no_progress_timeout_s: float = 30.0,
         bootstrap_min_known: int = 200,
+        stable_routes: bool = False,
     ) -> None:
         self.max_linear = float(max_linear_mps)
         self.max_angular = float(max_angular_rps)
@@ -121,6 +122,7 @@ class TourController:
         # Bootstrap by sweeping in place; this is a map-sparsity floor, NOT a
         # relaxation of any safety threshold.
         self.bootstrap_min_known = max(1, int(bootstrap_min_known))
+        self.stable_routes = stable_routes
 
         self.phase = IDLE
         self.request_id: str | None = None
@@ -163,6 +165,7 @@ class TourController:
         self._last_explorer_state: str | None = None
         self._last_explorer_reason: str | None = None
         self._route = []
+        self._segments = []
         self._route_at = float('-inf')
         self._route_phase = None
 
@@ -205,6 +208,7 @@ class TourController:
         self.reason = None
         self._explorer = self._new_explorer()
         self._route = []
+        self._segments = []
         self._route_at = float('-inf')
         self._route_phase = None
         self._started_at = now
@@ -374,7 +378,7 @@ class TourController:
             return ZERO, self.snapshot(now=now, grid=grid, pose_map=pose_map, signature=signature)
 
         if self.phase == EXPLORE:
-            if self._saturated():
+            if self._saturated() or self._should_reserve_return(now, grid, pose_map):
                 self._begin_return(now)
             else:
                 target = self._route_target(now, grid, pose_map)
@@ -445,14 +449,62 @@ class TourController:
     def _route_target(self, now, grid, pose):
         if self._explorer.recovery_phase:
             self._route_at = float('-inf')
+            self._route = []
+            self._segments = []
             return self._last_target
         if now - self._route_at >= 1.0 or self._route_phase != self.phase:
             router = GridRouter(grid, pose)
-            self._route = (router.home(self._start_pose_map) if self.phase == RETURN
-                           else router.frontier(pose, self._explorer._blocked_targets))
+            if not self._can_keep_route(router, pose):
+                self._route = (router.home(self._start_pose_map) if self.phase == RETURN
+                               else router.frontier(pose, self._explorer._blocked_targets))
+                self._segments = smooth_route(router, [pose[:2], *self._route]) if self.stable_routes and self._route else []
             self._route_at = now
             self._route_phase = self.phase
+        while len(self._segments) > 1 and _distance(self._segments[0], pose) <= 0.057:
+            self._segments.pop(0)
+        if self._segments:
+            return self._segments[0]
         return waypoint(self._route, pose)
+
+    def _can_keep_route(self, router, pose):
+        if not self.stable_routes or not self._route or self._route_phase != self.phase:
+            return False
+        if _distance(self._route[-1], pose) <= 0.055:
+            return False
+        goal = router.grid.world_to_cell(*self._route[-1])
+        if goal in self._explorer._blocked_targets:
+            return False
+        if self.phase == EXPLORE:
+            # A previously selected frontier may already be seen from here.
+            # Reuse the route only while the destination still offers new cells.
+            x, y = goal
+            if not any(router.grid.cell(x + dx, y + dy) == -1
+                       for dx, dy in ((1, 0), (0, 1), (-1, 0), (0, -1))):
+                return False
+        if self._segments:
+            points = [pose[:2], *self._segments]
+            return all(segment_is_free(router.grid, router.free, left, right)
+                       for left, right in zip(points, points[1:]))
+        nearest = nearest_on_route(self._route, pose)
+        if _distance(self._route[nearest], pose) > 2 * router.grid.resolution:
+            return False
+        cells = [router.grid.world_to_cell(*point) for point in self._route[nearest:]]
+        return all(cell in router.free for cell in cells)
+
+    def _should_reserve_return(self, now, grid, pose):
+        # Check on planning ticks in the second half of the distance budget.
+        # A long detour must start home before the existing travel limit can
+        # stop it mid-return. Use the length of the known route around obstacles.
+        if (not self.stable_routes or self._start_pose_map is None or self._explorer.recovery_phase
+                or self._encoder_path < self.max_travel / 2 or now - self._route_at < 1.0):
+            return False
+        router = GridRouter(grid, pose)
+        home = router.home(self._start_pose_map)
+        if not home:
+            return False
+        start = pose[:2]
+        route = [start, *(smooth_route(router, [start, *home]) or home)]
+        return self._encoder_path + sum(math.dist(a, b) for a, b in zip(route, route[1:])) + 0.30 >= self.max_travel
 
     def _saturated(self) -> bool:
         if self._no_frontier >= self.no_frontier_limit:
@@ -593,6 +645,7 @@ class TourController:
                 "max_angular_rps": self.max_angular,
                 "obstacle_stop_m": self.obstacle_stop,
                 "route_cells": len(self._route),
+                "route_goal_id": self._target_id(self._route[-1], grid) if self._route else None,
                 "recovery": self._explorer.recovery_snapshot(),
             },
             "cmd": {

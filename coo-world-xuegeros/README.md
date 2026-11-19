@@ -17,6 +17,8 @@ xuegeros sim
 `GET /api/control` 与 `POST /api/control`（body 为参数名到数值的 JSON 对象）。
 空闲时一次保存并生效，默认保存在 `~/.xuegeros/simulation.json`。
 `--config <文件>` 选择另一个配置；不会写入 npm 安装目录。
+
+仿真工作台的「点选导航」可以在地面选点或输入 X、Y，再点「前往目标」。车辆沿雷达已观测的空闲路线行驶；路线不可用时显示原因并停车。暂停、继续、取消和停车与巡游共用。
 `GET /api/interfaces` 列出全部 HTTP 接口和 robotd WebSocket 地址。
 `POST /api/command` 接受 robotd 的 goal / stop / tour / propose / execute 等现有命令。
 例如 `{"t":"goal","goal":"forward","distance_m":0.1}`，停车为 `{"t":"stop"}`。

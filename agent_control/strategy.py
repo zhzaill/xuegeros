@@ -48,7 +48,7 @@ from .coverage import (
 )
 from .explorer import GridMap
 from .protocol import ActionProposal
-from .navigation import TURN_RANGE_M
+from .navigation import PointNavigator, TURN_RANGE_M
 from .tour import TourController
 
 STRATEGY = "coverage"
@@ -99,7 +99,7 @@ def _wrap(angle: float) -> float:
     return (angle + math.pi) % (2 * math.pi) - math.pi
 
 
-# Both strategies are pluggable behind the same five calls, so the state machine,
+# All strategies are pluggable behind the same five calls, so the state machine,
 # the lease and the acceptance envelope do not know which one is running:
 #
 #     start(now, request_id, source, pose, ranges, angle_min, angle_increment, grid)
@@ -108,9 +108,9 @@ def _wrap(angle: float) -> float:
 #     stop(reason)           zero the action and report
 #     snapshot()             the strategy's own facts (phase, reason, measurements)
 #
-# Neither backend publishes, and neither one may send a goal: the runner hands
+# No backend publishes or sends a goal: the runner hands
 # their proposal to robotd exactly like a single-step goal would be handed over.
-STRATEGIES = ("coverage", "tour")
+STRATEGIES = ("coverage", "tour", "navigate")
 BACKEND_TERMINAL_PHASES = ("DONE", "LIMIT", "STOPPED")
 
 
@@ -298,6 +298,7 @@ class StrategyRunner:
         self.max_events = max(8, int(max_events))
         self.clock = clock
         self.strategy = normalise_strategy(strategy)
+        self._default_strategy = self.strategy
         self._factory = controller_factory or (
             lambda variant: CoverageController(
                 variant_id=variant.variant_id,
@@ -313,6 +314,7 @@ class StrategyRunner:
                 max_angular_rps=self.max_angular,
                 obstacle_stop_m=max(self.obstacle_stop, 0.32),
                 target_reached_m=0.18,
+                stable_routes=True,
             )
         )
 
@@ -320,7 +322,7 @@ class StrategyRunner:
         self._phase = StrategyPhase.IDLE
         self._reason = "idle"
         self._variant: CoverageVariant | None = None
-        self._backend: CoverageBackend | TourBackend | None = None
+        self._backend: CoverageBackend | TourBackend | PointNavigator | None = None
         self._backend_started = False
         self._request_id: str | None = None
         self._source: str | None = None
@@ -381,14 +383,10 @@ class StrategyRunner:
         source: str = "api",
         variant_id: str | None = None,
         strategy: str | None = None,
+        target: object = None,
         now: float | None = None,
     ) -> dict[str, Any]:
-        """Open a run; ``strategy`` picks coverage (default) or tour.
-
-        Coverage needs a variant (lane geometry lives there). Tour does not: it
-        reads the map itself, so a variant is optional and only used for the
-        acceptance envelope when one is supplied.
-        """
+        """Open a run: coverage needs a variant, navigate needs a map point."""
 
         with self._lock:
             if self._phase in LEASE_PHASES:
@@ -399,14 +397,22 @@ class StrategyRunner:
                     "reason": self._reason,
                 }
             try:
-                target_strategy = normalise_strategy(strategy or self.strategy)
+                default = self._default_strategy if self.strategy == "navigate" else self.strategy
+                target_strategy = normalise_strategy(strategy or default)
             except ValueError as exc:
                 return {"accepted": False, "error": "unknown_strategy", "message": str(exc)}
+            if target_strategy == "navigate":
+                if variant_id:
+                    return {"accepted": False, "error": "navigation_uses_target"}
+                if not isinstance(target, (list, tuple)) or len(target) != 2 or not all(
+                    type(value) in (int, float) and -1e6 <= value <= 1e6 for value in target
+                ):
+                    return {"accepted": False, "error": "invalid_target", "message": "target must be [x, y] in map metres"}
             variant: CoverageVariant | None = None
             if target_strategy == "coverage" or variant_id:
-                target = str(variant_id or self.variant_id)
+                variant_name = str(variant_id or self.variant_id)
                 try:
-                    variant = load_variant(target, root=self.variant_root)
+                    variant = load_variant(variant_name, root=self.variant_root)
                 except VariantError as exc:
                     return {
                         "accepted": False,
@@ -420,11 +426,13 @@ class StrategyRunner:
             if variant is not None:
                 self.variant_id = variant.variant_id
             self._variant = variant
-            self._backend = (
-                CoverageBackend(self._factory(variant))
-                if target_strategy == "coverage" and variant is not None
-                else TourBackend(self._tour_factory())
-            )
+            if target_strategy == "navigate":
+                self._backend = PointNavigator(tuple(target), max_linear=self.max_linear,
+                                               max_angular=self.max_angular, clearance=self.min_clearance)
+            elif target_strategy == "coverage" and variant is not None:
+                self._backend = CoverageBackend(self._factory(variant))
+            else:
+                self._backend = TourBackend(self._tour_factory())
             self._backend_started = False
             self._request_id = str(request_id or f"strategy-{int(wall * 1000)}")[:64]
             self._source = str(source)[:32]
@@ -539,7 +547,7 @@ class StrategyRunner:
         The returned ``{"publish", "linear_mps", "angular_rps"}`` triple is a
         proposal for the executor, not a command: nothing here writes a topic.
 
-        ``grid`` is only needed by strategies that plan against a map (tour); a
+        ``grid`` is only needed by strategies that plan against a map; a
         coverage run ignores it, so existing callers stay valid.
         """
 
@@ -569,11 +577,10 @@ class StrategyRunner:
 
             # 1. Acceptance envelope. A paused task is not running out of time.
             runtime = self._runtime(now)
-            if (
-                self._phase != StrategyPhase.PAUSED
-                and self._variant is not None
-                and runtime > self._variant.acceptance["max_runtime_s"]
-            ):
+            runtime_limit = 300.0 if self.strategy == "navigate" else None
+            if self._variant is not None:
+                runtime_limit = self._variant.acceptance["max_runtime_s"]
+            if self._phase != StrategyPhase.PAUSED and runtime_limit is not None and runtime > runtime_limit:
                 self._transition(StrategyPhase.TIMEOUT, "runtime_limit", facts)
                 return self._decision(now=now, publish=False, rationale="timeout")
 
@@ -679,6 +686,15 @@ class StrategyRunner:
 
             if explorer_state == "BLOCKED":
                 reason = str((backend_facts.get("navigation") or {}).get("explorer_reason") or "obstacle_stuck")
+                self._blocked_since = now
+                self._proposal = self._zero_proposal(reason)
+                self._transition(StrategyPhase.BLOCKED, reason, facts)
+                return self._decision(now=now, publish=False, rationale=reason)
+
+            if self.strategy == "navigate" and linear > 0 and (
+                not math.isfinite(front) or front < self.min_clearance
+            ):
+                reason = "navigation_path_blocked" if math.isfinite(front) else "front_scan_missing"
                 self._blocked_since = now
                 self._proposal = self._zero_proposal(reason)
                 self._transition(StrategyPhase.BLOCKED, reason, facts)
@@ -977,6 +993,11 @@ class StrategyRunner:
         known_cells: int | None,
         runtime: float,
     ) -> dict[str, Any]:
+        if self.strategy == "navigate":
+            navigation = coverage_facts.get("navigation") or {}
+            actual, limit = navigation.get("distance_m"), PointNavigator.tolerance_m
+            met = actual is not None and actual <= limit
+            return {"met": met, "checks": {"destination": {"actual_m": actual, "limit_m": limit, "met": met}}}
         acceptance = {} if self._variant is None else dict(self._variant.acceptance)
         return_section = coverage_facts.get("return") or {}
         home = return_section.get("dist_to_home_m")
@@ -1098,6 +1119,7 @@ class StrategyRunner:
                 "phase": self._phase,
                 "backend_phase": backend.get("phase"),
                 "target_id": navigation.get("target_id"),
+                "route_goal_id": navigation.get("route_goal_id"),
                 "target": navigation.get("target"),
                 "bearing_error_rad": navigation.get("bearing_error_rad"),
                 "explorer_state": navigation.get("explorer_state"),

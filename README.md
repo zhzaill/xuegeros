@@ -18,6 +18,8 @@ Coo 扩展安装 `cortico-world-xuegeros@0.3.5`，启用 xuegeros，deployment=s
 面板保留动作、巡游、24 项中控/小脑参数；3D 工作台独立打开，撤掉自动刷新“眼睛”。
 0.3.3 修复重启时历史“巡游结束”重复通知。
 
+0.3.6 为本机仿真工作台增加「点选导航」，并减少巡游来回修正。地面选点或输入坐标后点「前往目标」，可查看路线、剩余距离及停车回执。
+
 - [安装、接口、参数与局域网](docs/NPM-RELEASE.md)
 - [插件开发说明](coo-world-xuegeros/README.md)
 - [仿真契约](docs/SIM-CONTRACT.md)

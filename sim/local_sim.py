@@ -51,7 +51,7 @@ from agent_control.coverage import (
 )
 from agent_control.explorer import GridMap
 from agent_control.robotd import DaemonServer, RobotDaemon
-from agent_control.strategy import StrategyRunner
+from agent_control.strategy import STRATEGIES, StrategyPhase, StrategyRunner
 
 ROOT = Path(__file__).resolve().parents[1]
 SIM_ASSETS = ROOT / "sim" / "xuegeros_sim"
@@ -274,7 +274,7 @@ class LocalSimulator:
         return "sim_truth_seen/v1"
 
     def as_gridmap(self) -> "GridMap | None":
-        """Occupancy map for map-based strategies (``tour``).
+        """Occupancy map for tour and point navigation.
 
         A cell is unknown (-1) until a lidar ray has seen it; after that it takes
         the *truth* value (0 free / 100 occupied). This is the simulation's stand-in
@@ -466,10 +466,13 @@ class LocalSimulator:
         increment = 2 * math.pi / len(ranges)
         self.daemon.set_scan(-math.pi, increment, ranges, age_s=scan_age)
         self.last_scan_at = now
-        strategy_live = bool(getattr(self.daemon, "strategy_busy", False))
-        if strategy_live and self._tick % 4 == 0:
+        strategy = getattr(self.daemon, "strategy", None)
+        if strategy is not None and strategy.active and (
+            self._tick % 4 == 0 or (strategy.strategy == "navigate" and strategy.phase == StrategyPhase.STARTING)
+        ):
             # 12.5 Hz is enough for a coverage metric and cheap enough that
-            # the 50 Hz control loop keeps its budget.
+            # the 50 Hz control loop keeps its budget. A new destination needs
+            # its first scan before its first planner tick, even in a fresh room.
             self.mark_seen(ranges, -math.pi, increment)
         self._tick += 1
         if tick_with_strategy is not None:
@@ -570,6 +573,12 @@ class StrategyDaemon(RobotDaemon):
 
     def _command(self, message):
         kind = str(message.get("t") or message.get("type") or "").lower()
+        if (kind in ("stop", "halt") and self._tour_active and self.strategy is not None
+                and self.strategy.strategy == "navigate"):
+            reason = str(message.get("reason") or "console_stop")[:120]
+            self.strategy.stop(reason=reason)
+            self.stop_motion(reason)
+            return {"t": "answer", "request": "stop", "ok": True, "accepted": True, "state": "DONE", "reason": reason}
         if kind in ("goal", "propose", "execute") and self.strategy_busy:
             status = self.strategy.status()
             variant = status.get("variant") or {}
@@ -599,11 +608,14 @@ class StrategyDaemon(RobotDaemon):
         reason = str(message.get("reason") or "")[:120]
         since = int(message.get("since") or 0)
         if action == "start":
+            if self.physical and str(message.get("strategy") or "").strip().lower() == "navigate":
+                return {"t": "answer", "request": "tour", "accepted": False, "error": "simulation_only"}
             answer = strategy.start(
                 request_id=message.get("request_id"),
                 source=source,
                 variant_id=message.get("variant_id"),
                 strategy=message.get("strategy"),
+                target=message.get("target"),
             )
             if not answer.get("accepted"):
                 return {"t": "answer", "request": "tour", "action": "start", **answer}
@@ -617,7 +629,7 @@ class StrategyDaemon(RobotDaemon):
             status = strategy.status()
             self._tour_request_id = status.get("request_id")
             self.emit(
-                "tour_started",
+                "navigation_started" if status["strategy"] == "navigate" else "tour_started",
                 request_id=self._tour_request_id,
                 source=source,
                 variant_id=(status.get("variant") or {}).get("variant_id"),
@@ -667,7 +679,8 @@ class StrategyDaemon(RobotDaemon):
             self._last_result = {"request": "stop", "accepted": True, "reason": reason}
         self.emit("stop", reason=reason)
         if was_touring and finish_tour:
-            self.emit("tour_done", reason=reason, request_id=self._tour_request_id)
+            kind = "navigation_done" if self.strategy is not None and self.strategy.strategy == "navigate" else "tour_done"
+            self.emit(kind, reason=reason, request_id=self._tour_request_id)
 
     def _sync_tour(self) -> None:
         strategy = self.strategy
@@ -689,7 +702,7 @@ class StrategyDaemon(RobotDaemon):
         status = strategy.status()
         backend = status.get("backend") or {}
         self.emit(
-            "tour_done",
+            "navigation_done" if status["strategy"] == "navigate" else "tour_done",
             reason={"DONE": status["reason"], "CANCELLED": "cancelled", "TIMEOUT": "timeout",
                     "HANDOVER": "handover"}.get(status["phase"], "stopped"),
             request_id=status.get("request_id"),
@@ -858,6 +871,7 @@ def strategy_payload(sim: "LocalSimulator", *, since: int = 0) -> dict[str, obje
         # additive detail (contract §2 record + replay + workbench helpers)
         "physical": False,
         "available": True,
+        "supported_strategies": list(STRATEGIES),
         "scene": sim.scene.name,
         "goal_lease": status["goal_lease"],
         "request_id": status["request_id"],
@@ -1241,6 +1255,7 @@ def start_http(sim: LocalSimulator, port: int, model: dict[str, object], *, mesh
                     "request_id": request.get("request_id"),
                     "variant_id": request.get("variant_id"),
                     "strategy": request.get("strategy"),
+                    "target": request.get("target"),
                     "reason": request.get("reason"),
                     "since": request.get("since") or 0,
                 }
