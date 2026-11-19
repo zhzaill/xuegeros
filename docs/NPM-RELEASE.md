@@ -1,11 +1,11 @@
 # Coo 插件与轻量仿真发布
 
-本文档记录 npm 0.3.5 的安装与验收，以及源码 0.3.6 的导航更新。Node.js 22+、Python 3.10+；不需要 ROS 或 Gazebo。
+当前版本：**cortico-world-xuegeros 0.3.6**。Node.js 22+、Python 3.10+；不需要 ROS 或 Gazebo。
 
 ## 安装和启动
 
 ```sh
-npm install -g cortico-world-xuegeros@0.3.5
+npm install -g cortico-world-xuegeros@0.3.6
 xuegeros doctor
 xuegeros sim
 ```
