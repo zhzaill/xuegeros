@@ -1,11 +1,11 @@
 # Coo 插件与轻量仿真发布
 
-当前版本：**cortico-world-xuegeros 0.3.6**。Node.js 22+、Python 3.10+；不需要 ROS 或 Gazebo。
+当前版本：**cortico-world-xuegeros 0.3.7**。Node.js 22+、Python 3.10+；不需要 ROS 或 Gazebo。
 
 ## 安装和启动
 
 ```sh
-npm install -g cortico-world-xuegeros@0.3.6
+npm install -g cortico-world-xuegeros@0.3.7
 xuegeros doctor
 xuegeros sim
 ```
@@ -18,6 +18,8 @@ Coo 扩展依赖中安装同名包并启用 xuegeros World。新装默认选择�
 Coo 面板提供动作、巡游、原始状态与 24 项参数；3D 工作台独立打开，不再自动刷截图。
 0.3.5 已移除 Coo 的旧「控制窗」「地图/雷达」「3D 模型」快捷入口。
 旧链接安装应先卸载，再从 npm 安装；重启 Core 后重新打开设置窗口，更新版本化产物清单。
+
+[仿真入口打不开](../coo-world-xuegeros/README.md#仿真入口打不开)
 
 ## 0.3.6 点选导航
 

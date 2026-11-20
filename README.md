@@ -5,7 +5,7 @@ Coo 新装默认进入仿真。在动作面板点击「启动仿真工作台」�
 独立本机仿真与 Coo World，Node.js 22+、Python 3.10+，无需 ROS/Gazebo。
 
 ```sh
-npm install -g cortico-world-xuegeros@0.3.6
+npm install -g cortico-world-xuegeros@0.3.7
 xuegeros doctor
 xuegeros sim
 ```
@@ -14,13 +14,14 @@ xuegeros sim
 Windows 管理员终端 `xuegeros firewall` 放行本地子网的 18142/18242。
 地图 PNG 可选依赖：`python -m pip install Pillow`。
 
-Coo 扩展安装 `cortico-world-xuegeros@0.3.6`，启用 xuegeros，deployment=simulation。
+Coo 扩展安装 `cortico-world-xuegeros@0.3.7`，启用 xuegeros，deployment=simulation。
 面板保留动作、巡游、24 项中控/小脑参数；3D 工作台独立打开，撤掉自动刷新“眼睛”。
 0.3.3 修复重启时历史“巡游结束”重复通知。
 
 0.3.6 为本机仿真工作台增加「点选导航」，并减少巡游来回修正。地面选点或输入坐标后点「前往目标」，可查看路线、剩余距离及停车回执。
 
 - [安装、接口、参数与局域网](docs/NPM-RELEASE.md)
+- [仿真入口打不开](coo-world-xuegeros/README.md#仿真入口打不开)
 - [插件开发说明](coo-world-xuegeros/README.md)
 - [仿真契约](docs/SIM-CONTRACT.md)
 - [本机巡游验收](docs/LOCAL-TOUR-DELIVERY.md)

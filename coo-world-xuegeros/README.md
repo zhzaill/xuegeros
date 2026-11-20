@@ -60,6 +60,23 @@ Coo 面板提供动作、巡游、参数编辑及独立工作台入口，不自�
 本包是运动学仿真与插件，不包含真实 ROS 部署。现有本机场景巡游验收与
 真车能力分别记录，参数开放不会把仿真变成物理仿真。
 
+## 仿真入口打不开
+
+| 遇到的情况 | 怎么恢复 |
+| --- | --- |
+| Coo 里找不到 XuegerOS 小车，或动作面板没有仿真入口 | 在「World 扩展」启用 XuegerOS，再将「运行目标」设为 `simulation`。旧安装会保留上次保存的目标。保存后重新打开动作面板。如果面板还显示「物理车端」，重启 Coo 后再试。 |
+| 仍看到「控制窗」「地图/雷达」「3D 模型」，或面板提示 `Failed to fetch dynamically imported module` | 在 Coo 的扩展列表核对已加载的 `cortico-world-xuegeros` 版本。若还在用旧版本或旧的 `file:` / `link:` 安装，切换到 npm 的 `0.3.7`。完全退出并重启 Coo，再打开动作面板。 |
+| Coo 启动工作台失败，或浏览器打不开 `18142` | 先运行下面的 `doctor` 命令，确认已安装 Python 3.10+ 且 `runtime` 为 `true`。再从终端启动工作台。 |
+| 在 Coo 卸载时看到 `ERR_PNPM_UNEXPECTED_STORE` | 这是 Coo 管理依赖时使用了不同的 pnpm 存储目录。把扩展版本和第一条报错交给 Coo 安装维护者，工作台可先通过下面的命令独立运行。 |
+
+终端里依次运行以下命令。保留第二条命令的终端窗口，然后打开 [本机仿真工作台](http://127.0.0.1:18142/) 。如果默认端口被占用，可在第二条命令末尾加 `--http-port 18143 --port 18243`，浏览器改用 `18143`。要让 Coo 控制同一个仿真，Coo 设置里的 HTTP 和 WebSocket 端口也要一起改。
+
+```sh
+npx --yes --package=cortico-world-xuegeros@0.3.7 xuegeros doctor
+npx --yes --package=cortico-world-xuegeros@0.3.7 xuegeros sim
+```
+
+
 ## 开发与历史部署说明
 
 # XuegerOS World（Cortico / Coo）
